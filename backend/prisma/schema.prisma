@@ -1,0 +1,411 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================================================
+// CORE AUTH & USERS
+// =============================================================================
+
+model User {
+  id                  String    @id @default(uuid())
+  email               String    @unique
+  name                String?
+  passwordHash        String
+  
+  // Security & Locking
+  isLocked            Boolean   @default(false)
+  failedLoginAttempts Int       @default(0)
+  lastLogin           DateTime?
+  lockoutUntil        DateTime?
+  
+  // Password Reset Flow
+  resetTokenHash      String?
+  resetTokenExpiry    DateTime?
+  
+  // Relationships
+  roleId              String
+  role                Role      @relation(fields: [roleId], references: [id])
+  collegeId           String?
+  college             College?  @relation(fields: [collegeId], references: [id])
+  departmentId        String?
+  department          Department? @relation(fields: [departmentId], references: [id])
+  
+  sessions            Session[]
+  auditLogs           AuditLog[]
+  feedbackSubmissions FeedbackSubmission[]
+  courseAssignments   CourseAssignment[] @relation("FacultyAssignments")
+  enrollments        Enrollment[]       @relation("StudentEnrollments")
+  campaignsCreated   Campaign[]         @relation("CampaignCreator")
+
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+}
+
+model Role {
+  id          String   @id @default(uuid())
+  name        String   @unique // STUDENT, FACULTY, ADMIN, SUPER_ADMIN
+  description String?
+  
+  users       User[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model College {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  domain    String?  @unique
+
+  users         User[]
+  forms         FeedbackForm[]
+  departments   Department[]
+  academicYears AcademicYear[]
+  campaigns     Campaign[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// =============================================================================
+// ACADEMIC HIERARCHY
+// =============================================================================
+
+model Department {
+  id        String   @id @default(uuid())
+  name      String   // Computer Science & Engineering
+  code      String   // CSE
+  collegeId String
+  college   College  @relation(fields: [collegeId], references: [id])
+
+  users     User[]
+  programs  Program[]
+  courses   Course[]
+  sections  Section[]
+  campaigns Campaign[] @relation("CampaignDepartment")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([collegeId, code])
+}
+
+model Program {
+  id           String     @id @default(uuid())
+  name         String     // B.Tech, M.Tech, MBA, MCA
+  departmentId String
+  department   Department @relation(fields: [departmentId], references: [id])
+
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@unique([departmentId, name])
+}
+
+model AcademicYear {
+  id        String   @id @default(uuid())
+  name      String   // 2024-2025
+  collegeId String
+  college   College  @relation(fields: [collegeId], references: [id])
+  isCurrent Boolean  @default(false)
+
+  semesters Semester[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([collegeId, name])
+}
+
+model Semester {
+  id             String       @id @default(uuid())
+  number         Int          // 1, 2, 3, ...
+  name           String?      // "Semester 5" (auto-generated or custom)
+  academicYearId String
+  academicYear   AcademicYear @relation(fields: [academicYearId], references: [id])
+
+  sections         Section[]
+  courseAssignments CourseAssignment[]
+  enrollments      Enrollment[]
+  campaigns        Campaign[] @relation("CampaignSemester")
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([academicYearId, number])
+}
+
+model Section {
+  id           String     @id @default(uuid())
+  name         String     // A, B, C
+  departmentId String
+  department   Department @relation(fields: [departmentId], references: [id])
+  semesterId   String
+  semester     Semester   @relation(fields: [semesterId], references: [id])
+
+  enrollments      Enrollment[]
+  courseAssignments CourseAssignment[]
+  campaigns        Campaign[] @relation("CampaignSection")
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([departmentId, semesterId, name])
+}
+
+model Course {
+  id           String     @id @default(uuid())
+  name         String     // Operating Systems
+  code         String     // CS501
+  credits      Int        @default(3)
+  departmentId String
+  department   Department @relation(fields: [departmentId], references: [id])
+
+  assignments  CourseAssignment[]
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([departmentId, code])
+}
+
+model CourseAssignment {
+  id         String   @id @default(uuid())
+  courseId   String
+  course     Course   @relation(fields: [courseId], references: [id])
+  facultyId  String
+  faculty    User     @relation("FacultyAssignments", fields: [facultyId], references: [id])
+  sectionId  String
+  section    Section  @relation(fields: [sectionId], references: [id])
+  semesterId String
+  semester   Semester @relation(fields: [semesterId], references: [id])
+
+  campaigns  Campaign[] @relation("CampaignCourseAssignment")
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([courseId, facultyId, sectionId, semesterId])
+}
+
+model Enrollment {
+  id         String   @id @default(uuid())
+  studentId  String
+  student    User     @relation("StudentEnrollments", fields: [studentId], references: [id])
+  sectionId  String
+  section    Section  @relation(fields: [sectionId], references: [id])
+  semesterId String
+  semester   Semester @relation(fields: [semesterId], references: [id])
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([studentId, sectionId, semesterId])
+}
+
+// =============================================================================
+// CAMPAIGN SYSTEM
+// =============================================================================
+
+model Campaign {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  type        String   // FACULTY_EVAL, COURSE_EVAL, LAB_EVAL, INFRA_EVAL, HOSTEL_EVAL, MESS_EVAL, PLACEMENT_EVAL, EVENT_EVAL, GRIEVANCE
+
+  collegeId   String
+  college     College  @relation(fields: [collegeId], references: [id])
+  createdById String
+  createdBy   User     @relation("CampaignCreator", fields: [createdById], references: [id])
+
+  // Targeting (all optional — null means "entire college")
+  targetDepartmentId       String?
+  targetDepartment         Department?       @relation("CampaignDepartment", fields: [targetDepartmentId], references: [id])
+  targetSemesterId         String?
+  targetSemester           Semester?         @relation("CampaignSemester", fields: [targetSemesterId], references: [id])
+  targetSectionId          String?
+  targetSection            Section?          @relation("CampaignSection", fields: [targetSectionId], references: [id])
+  targetCourseAssignmentId String?
+  targetCourseAssignment   CourseAssignment? @relation("CampaignCourseAssignment", fields: [targetCourseAssignmentId], references: [id])
+
+  status      String   @default("DRAFT") // DRAFT, PUBLISHED, ACTIVE, CLOSED, ARCHIVED
+  startDate   DateTime?
+  endDate     DateTime?
+
+  forms       FeedbackForm[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([collegeId, status])
+  @@index([type])
+}
+
+// =============================================================================
+// SESSION MANAGEMENT & SECURITY
+// =============================================================================
+
+model Session {
+  id                String   @id @default(uuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  refreshTokenHash  String   @unique
+  deviceFingerprint String?
+  ipAddress         String?
+  userAgent         String?
+  
+  isRevoked         Boolean  @default(false)
+  expiresAt         DateTime
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([userId])
+  @@index([refreshTokenHash])
+}
+
+model AuditLog {
+  id           String   @id @default(uuid())
+  userId       String?
+  user         User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  
+  action       String   // e.g., LOGIN_SUCCESS, LOGIN_FAILED, PASSWORD_RESET
+  resourceType String   // e.g., AUTH, FORM, SYSTEM, CAMPAIGN
+  resourceId   String?
+  
+  severity     String   @default("INFO") // INFO, WARNING, CRITICAL
+  details      Json?
+  
+  ipAddress    String?
+  userAgent    String?
+
+  timestamp    DateTime @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([timestamp])
+}
+
+// =============================================================================
+// FEEDBACK DOMAIN
+// =============================================================================
+
+model FeedbackForm {
+  id                String   @id @default(uuid())
+  title             String
+  description       String?
+  
+  collegeId         String
+  college           College  @relation(fields: [collegeId], references: [id])
+
+  // Campaign linkage (optional for backward compatibility)
+  campaignId        String?
+  campaign          Campaign? @relation(fields: [campaignId], references: [id])
+  
+  status            String   @default("DRAFT") // DRAFT, PUBLISHED, ARCHIVED
+  scheduledFor      DateTime?
+  expiresAt         DateTime?
+  
+  questions         Question[]
+  submissions       FeedbackSubmission[]
+  anomalies         AbuseAnomaly[]
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model Question {
+  id               String   @id @default(uuid())
+  formId           String
+  form             FeedbackForm @relation(fields: [formId], references: [id], onDelete: Cascade)
+  
+  orderIndex       Int      @default(0)
+  questionText     String
+  questionType     String   // TEXT, MCQ, CHECKBOX, DROPDOWN, RATING, MATRIX, FILE_UPLOAD
+  
+  isRequired       Boolean  @default(true)
+  options          Json?    // For MCQs, Checkboxes, Dropdowns, Matrix rows/cols
+  conditionalLogic Json?    // Rule engine for showing/hiding based on previous answers
+
+  responses        FeedbackResponse[]
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  
+  @@index([formId, orderIndex])
+}
+
+model FeedbackSubmission {
+  id               String   @id @default(uuid())
+  formId           String
+  form             FeedbackForm @relation(fields: [formId], references: [id], onDelete: Cascade)
+  
+  studentId        String
+  student          User     @relation(fields: [studentId], references: [id])
+  
+  anonymousToken   String   @unique // Cryptographic detachment token
+  
+  status           String   @default("DRAFT") // DRAFT, COMPLETED
+  
+  // Integrity & Anti-Spam (Hashed or scrubbed after analysis)
+  deviceFingerprintHash String?
+  ipHash           String?
+  completionTimeMs Int?     // To detect impossible completion speed
+  
+  responses        FeedbackResponse[]
+
+  startedAt        DateTime @default(now())
+  completedAt      DateTime?
+
+  @@unique([formId, studentId]) // Prevent duplicate submissions
+}
+
+model FeedbackResponse {
+  id           String   @id @default(uuid())
+  submissionId String
+  submission   FeedbackSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  
+  questionId   String
+  question     Question @relation(fields: [questionId], references: [id])
+  
+  answerText   String?  // Encrypted at rest
+  answerNumber Float?   // For ratings
+  answerArray  Json?    // For checkboxes, multi-select
+  answerFile   String?  // File path/ID if secure upload
+
+  // Lightweight intelligence metadata generated from plaintext before encryption.
+  sentimentLabel String?
+  sentimentScore Float?
+  themeTags      Json?
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([sentimentLabel])
+}
+
+// =============================================================================
+// ABUSE & INTEGRITY MONITORING
+// =============================================================================
+
+model AbuseAnomaly {
+  id           String        @id @default(uuid())
+  formId       String?
+  form         FeedbackForm? @relation(fields: [formId], references: [id])
+  
+  anomalyType  String   // RAPID_SUBMISSION, DUPLICATE_FINGERPRINT, BOT_BEHAVIOR
+  severity     String   // LOW, MEDIUM, HIGH, CRITICAL
+  
+  metadata     Json?    // Hashed context
+  
+  createdAt    DateTime @default(now())
+  
+  @@index([anomalyType])
+  @@index([formId])
+}
