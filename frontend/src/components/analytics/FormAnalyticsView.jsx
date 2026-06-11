@@ -99,16 +99,16 @@ function QuestionAnalytics({ question, index, total }) {
 }
 
 function renderQuestionData(question, total) {
-    if (question.type === "RATING") {
+    if (isRatingType(question.type)) {
         return (
             <div className="flex items-end gap-3">
                 <span className="sf-metric text-5xl">{question.data.average || 0}</span>
-                <span className="text-[#45464d] mb-2">/ 5.0 average</span>
+                <span className="text-[#45464d] mb-2">/ {question.type === "RATING_10" ? "10.0" : "5.0"} average</span>
             </div>
         );
     }
 
-    if (["MCQ", "DROPDOWN", "CHECKBOX"].includes(question.type)) {
+    if (isChoiceType(question.type)) {
         const entries = Object.entries(question.data || {});
         if (entries.length === 0) {
             return <p className="text-sm text-[#45464d]">No selections submitted.</p>;
@@ -133,7 +133,7 @@ function renderQuestionData(question, total) {
         );
     }
 
-    if (question.type === "TEXT") {
+    if (isTextType(question.type)) {
         if (!question.data?.length) {
             return <p className="text-sm text-[#45464d]">No text responses submitted.</p>;
         }
@@ -149,6 +149,18 @@ function renderQuestionData(question, total) {
     }
 
     return <p className="text-sm text-[#45464d]">No renderer for this question type.</p>;
+}
+
+function isTextType(type) {
+    return ["TEXT", "SHORT_ANSWER", "PARAGRAPH"].includes(type);
+}
+
+function isRatingType(type) {
+    return ["RATING", "LINEAR_SCALE", "RATING_SCALE", "RATING_10"].includes(type);
+}
+
+function isChoiceType(type) {
+    return ["MCQ", "MULTIPLE_CHOICE", "DROPDOWN", "YES_NO", "CHECKBOX", "CHECKBOXES"].includes(type);
 }
 
 function Sentiment({ label, value }) {

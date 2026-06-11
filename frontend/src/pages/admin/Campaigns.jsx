@@ -33,15 +33,24 @@ const initialForm = {
     startDate: "",
     endDate: "",
     targetDepartmentId: "",
-    targetSemesterId: "",
+    targetSemesterNumber: "",
     targetSectionId: "",
     targetCourseAssignmentId: "",
+    formId: "",
 };
 
 const toOptions = (items, getLabel) => items.map((item) => ({
     value: item.id,
     label: getLabel(item),
 }));
+
+const semesterNumberOptions = Array.from({ length: 8 }, (_, index) => {
+    const number = index + 1;
+    return {
+        value: String(number),
+        label: `Semester ${number}`,
+    };
+});
 
 export default function Campaigns() {
     const navigate = useNavigate();
@@ -53,6 +62,7 @@ export default function Campaigns() {
     const [academicYears, setAcademicYears] = useState([]);
     const [sections, setSections] = useState([]);
     const [assignments, setAssignments] = useState([]);
+    const [forms, setForms] = useState([]);
     const [form, setForm] = useState(initialForm);
     const [saving, setSaving] = useState(false);
 
@@ -62,12 +72,13 @@ export default function Campaigns() {
     );
 
     const loadData = useCallback(async () => {
-        const [campaignRes, departmentRes, yearRes, sectionRes, assignmentRes] = await Promise.all([
+        const [campaignRes, departmentRes, yearRes, sectionRes, assignmentRes, formRes] = await Promise.all([
             request({ url: "/campaigns", method: "GET" }),
             request({ url: "/academic/departments", method: "GET" }),
             request({ url: "/academic/academic-years", method: "GET" }),
             request({ url: "/academic/sections", method: "GET" }),
             request({ url: "/academic/course-assignments", method: "GET" }),
+            request({ url: "/feedback/admin/forms", method: "GET" }),
         ]);
 
         setCampaigns(campaignRes.data || []);
@@ -75,6 +86,7 @@ export default function Campaigns() {
         setAcademicYears(yearRes.data || []);
         setSections(sectionRes.data || []);
         setAssignments(assignmentRes.data || []);
+        setForms(formRes.data || []);
     }, [request]);
 
     useEffect(() => {
@@ -87,7 +99,7 @@ export default function Campaigns() {
             ...prev,
             [field]: value,
             ...(field === "targetCourseAssignmentId" && value
-                ? { targetDepartmentId: "", targetSemesterId: "", targetSectionId: "" }
+                ? { targetDepartmentId: "", targetSemesterNumber: "", targetSectionId: "" }
                 : {}),
         }));
     };
@@ -98,6 +110,10 @@ export default function Campaigns() {
             toast.error("Campaign title is required");
             return;
         }
+        if (!form.formId) {
+            toast.error("Select a feedback form before creating a campaign");
+            return;
+        }
 
         setSaving(true);
         try {
@@ -105,6 +121,8 @@ export default function Campaigns() {
                 ...form,
                 startDate: form.startDate ? new Date(form.startDate).toISOString() : undefined,
                 endDate: form.endDate ? new Date(form.endDate).toISOString() : undefined,
+                targetSemesterNumber: form.targetSemesterNumber ? Number(form.targetSemesterNumber) : undefined,
+                targetSemesterId: semesters.find((semester) => String(semester.number) === String(form.targetSemesterNumber))?.id,
             };
 
             Object.keys(payload).forEach((key) => {
@@ -144,7 +162,7 @@ export default function Campaigns() {
     };
 
     const departmentOptions = toOptions(departments, (department) => `${department.code} - ${department.name}`);
-    const semesterOptions = toOptions(semesters, (semester) => semester.name || `Semester ${semester.number}`);
+    const semesterOptions = semesterNumberOptions;
     const sectionOptions = toOptions(sections, (section) => {
         const semester = section.semester?.name || `Semester ${section.semester?.number || ""}`;
         return `${section.department?.code || "Dept"}-${section.name} (${semester})`;
@@ -155,6 +173,10 @@ export default function Campaigns() {
         const section = assignment.section?.name || "Section";
         return `${course} - ${faculty} - ${section}`;
     });
+    const formOptions = toOptions(
+        forms.filter((item) => !item.campaignId || item.id === form.formId),
+        (item) => `${item.title} (${item.questions?.length || 0} questions, ${item.status})`
+    );
 
     return (
         <div className="max-w-7xl mx-auto space-y-6 pb-20">
@@ -200,6 +222,13 @@ export default function Campaigns() {
                 />
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Select
+                        label="Feedback Form"
+                        value={form.formId}
+                        onChange={(event) => updateField("formId", event.target.value)}
+                        options={formOptions}
+                        placeholder="Select a saved form"
+                    />
                     <Input
                         label="Start Date"
                         type="datetime-local"
@@ -225,8 +254,8 @@ export default function Campaigns() {
                     />
                     <Select
                         label="Semester Target"
-                        value={form.targetSemesterId}
-                        onChange={(event) => updateField("targetSemesterId", event.target.value)}
+                        value={form.targetSemesterNumber}
+                        onChange={(event) => updateField("targetSemesterNumber", event.target.value)}
                         options={semesterOptions}
                         placeholder="Any semester"
                         disabled={!!form.targetCourseAssignmentId}

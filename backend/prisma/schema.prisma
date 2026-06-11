@@ -15,6 +15,9 @@ model User {
   id                  String    @id @default(uuid())
   email               String    @unique
   name                String?
+  employeeId          String?
+  studentIdNumber     String?
+  designation         String?
   passwordHash        String
   
   // Security & Locking
@@ -61,12 +64,17 @@ model College {
   id        String   @id @default(uuid())
   name      String   @unique
   domain    String?  @unique
+  isActive  Boolean  @default(true)
 
   users         User[]
   forms         FeedbackForm[]
   departments   Department[]
   academicYears AcademicYear[]
   campaigns     Campaign[]
+  auditLogs     AuditLog[]
+  submissions   FeedbackSubmission[]
+  enrollments   Enrollment[]
+  courseAssignments CourseAssignment[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -176,6 +184,8 @@ model Course {
 
 model CourseAssignment {
   id         String   @id @default(uuid())
+  collegeId  String
+  college    College  @relation(fields: [collegeId], references: [id])
   courseId   String
   course     Course   @relation(fields: [courseId], references: [id])
   facultyId  String
@@ -191,10 +201,13 @@ model CourseAssignment {
   updatedAt  DateTime @updatedAt
 
   @@unique([courseId, facultyId, sectionId, semesterId])
+  @@index([collegeId])
 }
 
 model Enrollment {
   id         String   @id @default(uuid())
+  collegeId  String
+  college    College  @relation(fields: [collegeId], references: [id])
   studentId  String
   student    User     @relation("StudentEnrollments", fields: [studentId], references: [id])
   sectionId  String
@@ -206,6 +219,7 @@ model Enrollment {
   updatedAt  DateTime @updatedAt
 
   @@unique([studentId, sectionId, semesterId])
+  @@index([collegeId])
 }
 
 // =============================================================================
@@ -272,6 +286,8 @@ model Session {
 
 model AuditLog {
   id           String   @id @default(uuid())
+  collegeId    String?
+  college      College? @relation(fields: [collegeId], references: [id], onDelete: SetNull)
   userId       String?
   user         User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   
@@ -288,6 +304,7 @@ model AuditLog {
   timestamp    DateTime @default(now())
 
   @@index([userId])
+  @@index([collegeId])
   @@index([action])
   @@index([timestamp])
 }
@@ -343,6 +360,8 @@ model Question {
 
 model FeedbackSubmission {
   id               String   @id @default(uuid())
+  collegeId         String
+  college           College  @relation(fields: [collegeId], references: [id])
   formId           String
   form             FeedbackForm @relation(fields: [formId], references: [id], onDelete: Cascade)
   
@@ -364,6 +383,7 @@ model FeedbackSubmission {
   completedAt      DateTime?
 
   @@unique([formId, studentId]) // Prevent duplicate submissions
+  @@index([collegeId])
 }
 
 model FeedbackResponse {

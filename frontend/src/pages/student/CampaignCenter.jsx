@@ -23,8 +23,7 @@ const getDueLabel = (endDate) => {
 };
 
 /**
- * Derive a flat list of rows — one per form per campaign.
- * Each row carries the campaign metadata alongside the form.
+ * Derive a flat list of rows, one per available feedback form.
  */
 const buildRows = (campaigns) =>
     campaigns.flatMap((campaign) =>
@@ -69,7 +68,7 @@ export default function CampaignCenter() {
     useEffect(() => {
         // eslint-disable-next-line react-hooks/set-state-in-effect
         loadCampaigns().catch(() =>
-            toast.error("Failed to load campaigns")
+            toast.error("Failed to load feedback forms")
         );
     }, [loadCampaigns, toast]);
 
@@ -81,7 +80,7 @@ export default function CampaignCenter() {
             <div className="max-w-[1000px] mx-auto flex flex-col gap-6 pb-20">
                 <div className="flex flex-col gap-1">
                     <span className="sf-label">Student</span>
-                    <h1 className="sf-page-title">Campaign Center</h1>
+                    <h1 className="sf-page-title">Feedback Forms</h1>
                 </div>
                 <div className="space-y-4">
                     <Skeleton preset="card" />
@@ -98,15 +97,14 @@ export default function CampaignCenter() {
             <div className="max-w-[1000px] mx-auto flex flex-col gap-6 pb-20">
                 <div className="flex flex-col gap-1">
                     <span className="sf-label">Student</span>
-                    <h1 className="sf-page-title">Campaign Center</h1>
+                    <h1 className="sf-page-title">Feedback Forms</h1>
                 </div>
                 <div className="sf-panel-soft p-10 text-center">
                     <p className="font-semibold text-black">
-                        No active campaigns found
+                        No available feedback forms found
                     </p>
                     <p className="text-sm text-[#45464d] mt-1 max-w-md mx-auto">
-                        When your institution publishes a new feedback
-                        campaign, it will appear here.
+                        When your institution publishes a new feedback form, it will appear here.
                     </p>
                 </div>
             </div>
@@ -120,7 +118,7 @@ export default function CampaignCenter() {
             <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
                 <div className="flex flex-col gap-1">
                     <span className="sf-label">Student</span>
-                    <h1 className="sf-page-title">Campaign Center</h1>
+                    <h1 className="sf-page-title">Feedback Forms</h1>
                 </div>
                 <div className="flex items-center gap-4">
                     <div className="flex flex-col items-end gap-1">
@@ -145,7 +143,7 @@ export default function CampaignCenter() {
                     <thead>
                         <tr className="bg-[#f2f4f6] border-b border-[#c6c6cd]">
                             <th className="px-4 py-3 sf-label">
-                                Campaign
+                                Feedback Form
                             </th>
                             <th className="px-4 py-3 sf-label">
                                 Faculty
@@ -173,7 +171,7 @@ export default function CampaignCenter() {
                                 key={row.key}
                                 className="hover:bg-[#f7f9fb] transition-colors"
                             >
-                                {/* Campaign Name */}
+                                {/* Feedback form name */}
                                 <td className="px-4 py-4">
                                     <div className="font-semibold text-black leading-tight">
                                         {row.campaignTitle}

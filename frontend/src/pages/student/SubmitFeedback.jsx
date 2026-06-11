@@ -64,10 +64,10 @@ export default function SubmitFeedback() {
 
         const responses = Object.entries(answers).map(([questionId, answer]) => {
             const payload = { questionId };
-            if (answer.type === "TEXT") payload.answerText = answer.value;
-            if (answer.type === "RATING") payload.answerNumber = Number(answer.value);
-            if (answer.type === "CHECKBOX") payload.answerArray = answer.value;
-            if (answer.type === "MCQ" || answer.type === "DROPDOWN") payload.answerText = answer.value;
+            if (isTextType(answer.type)) payload.answerText = answer.value;
+            if (isRatingType(answer.type)) payload.answerNumber = Number(answer.value);
+            if (isCheckboxType(answer.type)) payload.answerArray = answer.value;
+            if (isSingleChoiceType(answer.type)) payload.answerText = answer.value;
             return payload;
         });
 
@@ -190,13 +190,13 @@ export default function SubmitFeedback() {
 }
 
 function renderQuestionInput(question, value, handleAnswerChange, handleCheckboxChange) {
-    if (question.questionType === "TEXT") {
+    if (isTextType(question.questionType)) {
         return (
             <Textarea
                 placeholder="Type your answer here..."
                 value={value}
-                onChange={(event) => handleAnswerChange(question.id, event.target.value, "TEXT")}
-                rows={4}
+                onChange={(event) => handleAnswerChange(question.id, event.target.value, question.questionType)}
+                rows={question.questionType === "SHORT_ANSWER" ? 2 : 4}
             />
         );
     }
@@ -205,24 +205,25 @@ function renderQuestionInput(question, value, handleAnswerChange, handleCheckbox
         return (
             <Select
                 value={value}
-                onChange={(event) => handleAnswerChange(question.id, event.target.value, "DROPDOWN")}
+                onChange={(event) => handleAnswerChange(question.id, event.target.value, question.questionType)}
                 options={(question.options || []).map((option) => ({ value: option, label: option }))}
                 placeholder="Select an option"
             />
         );
     }
 
-    if (question.questionType === "MCQ") {
+    if (isSingleChoiceType(question.questionType)) {
+        const options = question.questionType === "YES_NO" ? ["Yes", "No"] : (question.options || []);
         return (
             <div className="space-y-2">
-                {(question.options || []).map((option) => (
+                {options.map((option) => (
                     <label key={option} className="flex items-center gap-3 p-3 border border-[#c6c6cd] bg-[#f7f9fb] cursor-pointer hover:bg-white">
                         <input
                             type="radio"
                             name={`q_${question.id}`}
                             value={option}
                             checked={value === option}
-                            onChange={(event) => handleAnswerChange(question.id, event.target.value, "MCQ")}
+                            onChange={(event) => handleAnswerChange(question.id, event.target.value, question.questionType)}
                         />
                         <span className="text-sm text-black">{option}</span>
                     </label>
@@ -231,7 +232,7 @@ function renderQuestionInput(question, value, handleAnswerChange, handleCheckbox
         );
     }
 
-    if (question.questionType === "CHECKBOX") {
+    if (isCheckboxType(question.questionType)) {
         const selected = Array.isArray(value) ? value : [];
         return (
             <div className="space-y-2">
@@ -249,10 +250,11 @@ function renderQuestionInput(question, value, handleAnswerChange, handleCheckbox
         );
     }
 
-    if (question.questionType === "RATING") {
+    if (isRatingType(question.questionType)) {
+        const scale = question.questionType === "RATING_10" ? 10 : 5;
         return (
-            <div className="grid grid-cols-5 gap-2">
-                {[1, 2, 3, 4, 5].map((number) => (
+            <div className={scale === 10 ? "grid grid-cols-5 md:grid-cols-10 gap-2" : "grid grid-cols-5 gap-2"}>
+                {Array.from({ length: scale }, (_, index) => index + 1).map((number) => (
                     <button
                         type="button"
                         key={number}
@@ -271,4 +273,20 @@ function renderQuestionInput(question, value, handleAnswerChange, handleCheckbox
     }
 
     return <p className="text-sm text-[#ba1a1a]">Unsupported question type.</p>;
+}
+
+function isTextType(type) {
+    return ["TEXT", "SHORT_ANSWER", "PARAGRAPH"].includes(type);
+}
+
+function isRatingType(type) {
+    return ["RATING", "LINEAR_SCALE", "RATING_SCALE", "RATING_10"].includes(type);
+}
+
+function isCheckboxType(type) {
+    return ["CHECKBOX", "CHECKBOXES"].includes(type);
+}
+
+function isSingleChoiceType(type) {
+    return ["MCQ", "MULTIPLE_CHOICE", "DROPDOWN", "YES_NO"].includes(type);
 }

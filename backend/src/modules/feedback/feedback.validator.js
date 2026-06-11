@@ -6,6 +6,10 @@ export const createFormSchema = z.object({
     status: z.enum(["DRAFT", "PUBLISHED", "ARCHIVED"]).default("DRAFT"),
     scheduledFor: z.string().datetime().optional(),
     expiresAt: z.string().datetime().optional(),
+    targetDepartmentId: z.string().uuid().optional(),
+    targetSemesterId: z.string().uuid().optional(),
+    targetSemesterNumber: z.number().int().min(1).max(8).optional(),
+    targetSectionId: z.string().uuid().optional(),
 
     questions: z.array(
         z.object({
@@ -13,10 +17,18 @@ export const createFormSchema = z.object({
             questionText: z.string().min(1).max(1000),
             questionType: z.enum([
                 "TEXT",
+                "SHORT_ANSWER",
+                "PARAGRAPH",
                 "MCQ",
+                "MULTIPLE_CHOICE",
                 "CHECKBOX",
+                "CHECKBOXES",
                 "DROPDOWN",
                 "RATING",
+                "LINEAR_SCALE",
+                "RATING_SCALE",
+                "RATING_10",
+                "YES_NO",
                 "MATRIX",
                 "FILE_UPLOAD"
             ]),

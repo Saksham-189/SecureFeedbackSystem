@@ -16,6 +16,14 @@ const toOptions = (items, getLabel) => items.map((item) => ({
     label: getLabel(item),
 }));
 
+const semesterNumberOptions = Array.from({ length: 8 }, (_, index) => {
+    const number = index + 1;
+    return {
+        value: String(number),
+        label: `Semester ${number}`,
+    };
+});
+
 export default function AcademicStructure() {
     const { request, loading } = useApi();
     const { toast } = useToast();
@@ -28,7 +36,7 @@ export default function AcademicStructure() {
     const [enrollments, setEnrollments] = useState([]);
     const [departmentDraft, setDepartmentDraft] = useState({ name: "", code: "" });
     const [courseDraft, setCourseDraft] = useState({ name: "", code: "", credits: 3, departmentId: "" });
-    const [sectionDraft, setSectionDraft] = useState({ name: "", departmentId: "", semesterId: "" });
+    const [sectionDraft, setSectionDraft] = useState({ name: "", departmentId: "", semesterNumber: "" });
 
     const semesters = useMemo(
         () => academicYears.flatMap((year) => year.semesters || []),
@@ -59,7 +67,7 @@ export default function AcademicStructure() {
     }, [loadData, toast]);
 
     const departmentOptions = toOptions(departments, (department) => `${department.code} - ${department.name}`);
-    const semesterOptions = toOptions(semesters, (semester) => semester.name || `Semester ${semester.number}`);
+    const semesterOptions = semesterNumberOptions;
 
     const createDepartment = async (event) => {
         event.preventDefault();
@@ -88,8 +96,17 @@ export default function AcademicStructure() {
     const createSection = async (event) => {
         event.preventDefault();
         try {
-            await request({ url: "/academic/sections", method: "POST", data: sectionDraft });
-            setSectionDraft({ name: "", departmentId: "", semesterId: "" });
+            const matchingSemester = semesters.find((semester) => String(semester.number) === String(sectionDraft.semesterNumber));
+            await request({
+                url: "/academic/sections",
+                method: "POST",
+                data: {
+                    ...sectionDraft,
+                    semesterNumber: Number(sectionDraft.semesterNumber),
+                    semesterId: matchingSemester?.id,
+                },
+            });
+            setSectionDraft({ name: "", departmentId: "", semesterNumber: "" });
             toast.success("Section saved");
             await loadData();
         } catch (error) {
@@ -187,7 +204,7 @@ export default function AcademicStructure() {
                     <InlineForm onSubmit={createSection}>
                         <Input label="Section" value={sectionDraft.name} onChange={(event) => setSectionDraft((prev) => ({ ...prev, name: event.target.value }))} />
                         <Select label="Department" value={sectionDraft.departmentId} onChange={(event) => setSectionDraft((prev) => ({ ...prev, departmentId: event.target.value }))} options={departmentOptions} />
-                        <Select label="Semester" value={sectionDraft.semesterId} onChange={(event) => setSectionDraft((prev) => ({ ...prev, semesterId: event.target.value }))} options={semesterOptions} />
+                        <Select label="Semester" value={sectionDraft.semesterNumber} onChange={(event) => setSectionDraft((prev) => ({ ...prev, semesterNumber: event.target.value }))} options={semesterOptions} />
                         <Button type="submit">Save Section</Button>
                     </InlineForm>
                 )}

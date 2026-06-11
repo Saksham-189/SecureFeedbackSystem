@@ -12,7 +12,7 @@ export const formAnalytics = async (req, res) => {
         res.status(200).json({ success: true, data });
     } catch (error) {
         // Differentiate privacy errors from normal bad requests
-        const statusCode = error.message.includes("privacy threshold") ? 403 : 400;
+        const statusCode = error.message.includes("At least") || error.message.includes("privacy threshold") ? 403 : 400;
         res.status(statusCode).json({ success: false, message: error.message });
     }
 };
@@ -26,7 +26,7 @@ export const averageRatings = async (req, res) => {
         const data = await getFormAnalytics(formId, req.user);
         res.status(200).json({ success: true, data });
     } catch (error) {
-        const statusCode = error.message.includes("privacy threshold") ? 403 : 400;
+        const statusCode = error.message.includes("At least") || error.message.includes("privacy threshold") ? 403 : 400;
         res.status(statusCode).json({ success: false, message: error.message });
     }
 };

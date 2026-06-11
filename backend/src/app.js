@@ -12,6 +12,7 @@ import analyticsRoutes from "./modules/analytics/analytics.routes.js";
 import academicRoutes from "./modules/academic/academic.routes.js";
 import campaignRoutes from "./modules/campaign/campaign.routes.js";
 import enrollmentRoutes from "./modules/enrollment/enrollment.routes.js";
+import profileRoutes from "./modules/profile/profile.routes.js";
 
 import { apiLimiter } from "./middleware/rateLimiter.js";
 import { csrfProtection, getCsrfToken } from "./middleware/csrf.middleware.js";
@@ -73,6 +74,7 @@ app.use("/api/analytics", analyticsRoutes);
 app.use("/api/academic", academicRoutes);
 app.use("/api/campaigns", campaignRoutes);
 app.use("/api/enrollment", enrollmentRoutes);
+app.use("/api/profile", profileRoutes);
 
 app.get("/", (req, res) => {
   res.json({

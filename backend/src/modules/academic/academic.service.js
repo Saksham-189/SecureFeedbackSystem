@@ -11,6 +11,14 @@ const collegeScope = (user) => {
     return user.collegeId;
 };
 
+const requireCollegeAdmin = (user) => {
+    if (getRoleName(user) !== "ADMIN") {
+        throw new Error("Only College Admins can manage academic structures");
+    }
+
+    return collegeScope(user);
+};
+
 const assertDepartment = async (departmentId, user) => {
     const collegeId = collegeScope(user);
     const department = await prisma.department.findFirst({
@@ -49,6 +57,43 @@ const assertSemester = async (semesterId, user) => {
 
     if (!semester) throw new Error("Semester not found");
     return semester;
+};
+
+const getOrCreateSemesterByNumber = async (semesterNumber, user) => {
+    const collegeId = collegeScope(user);
+    const number = Number(semesterNumber);
+    if (!Number.isInteger(number) || number < 1 || number > 8) {
+        throw new Error("Semester must be between 1 and 8");
+    }
+
+    const currentYear = await prisma.academicYear.findFirst({
+        where: { collegeId, isCurrent: true },
+        include: { semesters: true }
+    });
+
+    const academicYear = currentYear || await prisma.academicYear.create({
+        data: {
+            collegeId,
+            name: `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`,
+            isCurrent: true
+        }
+    });
+
+    return prisma.semester.upsert({
+        where: {
+            academicYearId_number: {
+                academicYearId: academicYear.id,
+                number
+            }
+        },
+        update: { name: `Semester ${number}` },
+        create: {
+            academicYearId: academicYear.id,
+            number,
+            name: `Semester ${number}`
+        },
+        include: { academicYear: true }
+    });
 };
 
 const assertSection = async (sectionId, user) => {
@@ -94,15 +139,62 @@ export const getDepartments = async (user) => {
     });
 };
 
+export const getColleges = async () => {
+    return prisma.college.findMany({
+        include: {
+            _count: { select: { users: true, departments: true, campaigns: true } }
+        },
+        orderBy: { name: "asc" }
+    });
+};
+
+export const createCollege = async (data, user) => {
+    if (!isSuperAdmin(user)) throw new Error("Only Super Admin can create colleges");
+
+    const name = data.name?.trim();
+    const domain = data.domain?.trim().toLowerCase() || null;
+    if (!name) throw new Error("College name is required");
+
+    return prisma.college.create({
+        data: { name, domain }
+    });
+};
+
+export const updateCollege = async (collegeId, data, user) => {
+    if (!isSuperAdmin(user)) throw new Error("Only Super Admin can edit colleges");
+
+    const existing = await prisma.college.findUnique({ where: { id: collegeId } });
+    if (!existing) throw new Error("College not found");
+
+    const updateData = {};
+    if (data.name !== undefined) {
+        const name = data.name?.trim();
+        if (!name) throw new Error("College name is required");
+        updateData.name = name;
+    }
+    if (data.domain !== undefined) {
+        updateData.domain = data.domain?.trim().toLowerCase() || null;
+    }
+    if (data.isActive !== undefined) {
+        updateData.isActive = Boolean(data.isActive);
+    }
+
+    return prisma.college.update({
+        where: { id: collegeId },
+        data: updateData
+    });
+};
+
 export const createDepartment = async (data, user) => {
     const name = data.name?.trim();
     const code = data.code?.trim().toUpperCase();
     if (!name || !code) throw new Error("Department name and code are required");
+    const collegeId = requireCollegeAdmin(user);
 
     return prisma.department.upsert({
         where: {
             collegeId_code: {
-                collegeId: collegeScope(user),
+                collegeId,
                 code
             }
         },
@@ -110,7 +202,7 @@ export const createDepartment = async (data, user) => {
         create: {
             name,
             code,
-            collegeId: collegeScope(user)
+            collegeId
         }
     });
 };
@@ -124,6 +216,7 @@ export const getPrograms = async (departmentId, user) => {
 };
 
 export const createProgram = async (data, user) => {
+    requireCollegeAdmin(user);
     await assertDepartment(data.departmentId, user);
     const name = data.name?.trim();
     if (!name) throw new Error("Program name is required");
@@ -151,13 +244,14 @@ export const getAcademicYears = async (user) => {
 };
 
 export const createAcademicYear = async (data, user) => {
+    const collegeId = requireCollegeAdmin(user);
     const name = data.name?.trim();
     if (!name) throw new Error("Academic year name is required");
 
     return prisma.$transaction(async (tx) => {
         if (data.isCurrent) {
             await tx.academicYear.updateMany({
-                where: { collegeId: collegeScope(user), isCurrent: true },
+                where: { collegeId, isCurrent: true },
                 data: { isCurrent: false }
             });
         }
@@ -165,14 +259,14 @@ export const createAcademicYear = async (data, user) => {
         const academicYear = await tx.academicYear.upsert({
             where: {
                 collegeId_name: {
-                    collegeId: collegeScope(user),
+                    collegeId,
                     name
                 }
             },
             update: { isCurrent: !!data.isCurrent },
             create: {
                 name,
-                collegeId: collegeScope(user),
+                collegeId,
                 isCurrent: !!data.isCurrent
             }
         });
@@ -227,8 +321,11 @@ export const getSections = async ({ departmentId, semesterId } = {}, user) => {
 };
 
 export const createSection = async (data, user) => {
+    requireCollegeAdmin(user);
     const department = await assertDepartment(data.departmentId, user);
-    const semester = await assertSemester(data.semesterId, user);
+    const semester = data.semesterId
+        ? await assertSemester(data.semesterId, user)
+        : await getOrCreateSemesterByNumber(data.semesterNumber, user);
     if (department.collegeId !== semester.academicYear.collegeId) {
         throw new Error("Department and semester must belong to the same college");
     }
@@ -240,12 +337,12 @@ export const createSection = async (data, user) => {
         where: {
             departmentId_semesterId_name: {
                 departmentId: data.departmentId,
-                semesterId: data.semesterId,
+                semesterId: semester.id,
                 name
             }
         },
         update: {},
-        create: { name, departmentId: data.departmentId, semesterId: data.semesterId }
+        create: { name, departmentId: data.departmentId, semesterId: semester.id }
     });
 };
 
@@ -266,6 +363,7 @@ export const getCourses = async ({ departmentId } = {}, user) => {
 };
 
 export const createCourse = async (data, user) => {
+    requireCollegeAdmin(user);
     await assertDepartment(data.departmentId, user);
     const name = data.name?.trim();
     const code = data.code?.trim().toUpperCase();
@@ -319,6 +417,7 @@ export const getCourseAssignments = async ({ semesterId, sectionId, facultyId } 
 };
 
 export const createCourseAssignment = async (data, user) => {
+    requireCollegeAdmin(user);
     const course = await assertCourse(data.courseId, user);
     const section = await assertSection(data.sectionId, user);
     const semester = await assertSemester(data.semesterId, user);
@@ -349,7 +448,10 @@ export const createCourseAssignment = async (data, user) => {
     return prisma.courseAssignment.upsert({
         where: { courseId_facultyId_sectionId_semesterId: assignmentKey },
         update: {},
-        create: assignmentKey
+        create: {
+            ...assignmentKey,
+            collegeId: course.department.collegeId
+        }
     });
 };
 
@@ -379,6 +481,7 @@ export const getEnrollments = async ({ sectionId, semesterId, studentId } = {}, 
 };
 
 export const createEnrollment = async (data, user) => {
+    requireCollegeAdmin(user);
     const section = await assertSection(data.sectionId, user);
     const semester = await assertSemester(data.semesterId, user);
     if (section.semesterId !== semester.id) {
@@ -403,7 +506,10 @@ export const createEnrollment = async (data, user) => {
     return prisma.enrollment.upsert({
         where: { studentId_sectionId_semesterId: enrollmentKey },
         update: {},
-        create: enrollmentKey
+        create: {
+            ...enrollmentKey,
+            collegeId: section.department.collegeId
+        }
     });
 };
 

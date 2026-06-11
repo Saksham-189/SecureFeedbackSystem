@@ -25,6 +25,14 @@ const collegeScope = (user) => {
     return user.collegeId;
 };
 
+const requireCollegeAdmin = (user) => {
+    if (getRoleName(user) !== "ADMIN") {
+        throw new Error("Only College Admins can manage campaigns");
+    }
+
+    return collegeScope(user);
+};
+
 const openCampaignWhere = (now = new Date()) => ({
     status: { in: ["PUBLISHED", "ACTIVE"] },
     OR: [{ startDate: null }, { startDate: { lte: now } }],
@@ -35,6 +43,40 @@ const ensureDateOrder = (startDate, endDate) => {
     if (startDate && endDate && new Date(startDate) >= new Date(endDate)) {
         throw new Error("Campaign end date must be after the start date");
     }
+};
+
+const getOrCreateSemesterByNumber = async (semesterNumber, collegeId) => {
+    const number = Number(semesterNumber);
+    if (!Number.isInteger(number) || number < 1 || number > 8) {
+        throw new Error("Semester target must be between 1 and 8");
+    }
+
+    const currentYear = await prisma.academicYear.findFirst({
+        where: { collegeId, isCurrent: true }
+    });
+
+    const academicYear = currentYear || await prisma.academicYear.create({
+        data: {
+            collegeId,
+            name: `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`,
+            isCurrent: true
+        }
+    });
+
+    return prisma.semester.upsert({
+        where: {
+            academicYearId_number: {
+                academicYearId: academicYear.id,
+                number
+            }
+        },
+        update: { name: `Semester ${number}` },
+        create: {
+            academicYearId: academicYear.id,
+            number,
+            name: `Semester ${number}`
+        }
+    });
 };
 
 const defaultQuestionsForType = (type) => {
@@ -69,6 +111,9 @@ const assertTargetBelongsToCollege = async (data, collegeId) => {
             where: { id: data.targetSemesterId, academicYear: { collegeId } }
         });
         if (!semester) throw new Error("Target semester not found");
+        target.targetSemesterId = semester.id;
+    } else if (data.targetSemesterNumber) {
+        const semester = await getOrCreateSemesterByNumber(data.targetSemesterNumber, collegeId);
         target.targetSemesterId = semester.id;
     }
 
@@ -118,7 +163,7 @@ const includeCampaignDetails = {
 };
 
 export const createCampaign = async (data, user) => {
-    const collegeId = collegeScope(user);
+    const collegeId = requireCollegeAdmin(user);
     const title = data.title?.trim();
     const type = data.type || "FACULTY_EVAL";
     const status = data.status || "DRAFT";
@@ -129,6 +174,20 @@ export const createCampaign = async (data, user) => {
 
     ensureDateOrder(data.startDate, data.endDate);
     const target = await assertTargetBelongsToCollege(data, collegeId);
+    let existingForm = null;
+    if (data.formId) {
+        existingForm = await prisma.feedbackForm.findFirst({
+            where: {
+                id: data.formId,
+                collegeId,
+                OR: [{ campaignId: null }, { campaignId: data.campaignId || null }]
+            },
+            include: { questions: true }
+        });
+        if (!existingForm) throw new Error("Selected form not found or already attached to another campaign");
+        if (existingForm.questions.length === 0) throw new Error("Selected form must contain at least one question");
+    }
+
     const questions = data.questions?.length ? data.questions : defaultQuestionsForType(type);
     const formTitle = data.formTitle?.trim() || title;
 
@@ -147,27 +206,39 @@ export const createCampaign = async (data, user) => {
             }
         });
 
-        await tx.feedbackForm.create({
-            data: {
-                title: formTitle,
-                description: data.formDescription?.trim() || data.description?.trim() || null,
-                collegeId,
-                campaignId: createdCampaign.id,
-                status: ["PUBLISHED", "ACTIVE"].includes(status) ? "PUBLISHED" : "DRAFT",
-                scheduledFor: data.startDate ? new Date(data.startDate) : null,
-                expiresAt: data.endDate ? new Date(data.endDate) : null,
-                questions: {
-                    create: questions.map((question, index) => ({
-                        orderIndex: question.orderIndex ?? index,
-                        questionText: question.questionText,
-                        questionType: question.questionType,
-                        isRequired: question.isRequired ?? true,
-                        options: question.options || null,
-                        conditionalLogic: question.conditionalLogic || null
-                    }))
+        if (existingForm) {
+            await tx.feedbackForm.update({
+                where: { id: existingForm.id },
+                data: {
+                    campaignId: createdCampaign.id,
+                    status: ["PUBLISHED", "ACTIVE"].includes(status) ? "PUBLISHED" : existingForm.status,
+                    scheduledFor: data.startDate ? new Date(data.startDate) : existingForm.scheduledFor,
+                    expiresAt: data.endDate ? new Date(data.endDate) : existingForm.expiresAt
                 }
-            }
-        });
+            });
+        } else {
+            await tx.feedbackForm.create({
+                data: {
+                    title: formTitle,
+                    description: data.formDescription?.trim() || data.description?.trim() || null,
+                    collegeId,
+                    campaignId: createdCampaign.id,
+                    status: ["PUBLISHED", "ACTIVE"].includes(status) ? "PUBLISHED" : "DRAFT",
+                    scheduledFor: data.startDate ? new Date(data.startDate) : null,
+                    expiresAt: data.endDate ? new Date(data.endDate) : null,
+                    questions: {
+                        create: questions.map((question, index) => ({
+                            orderIndex: question.orderIndex ?? index,
+                            questionText: question.questionText,
+                            questionType: question.questionType,
+                            isRequired: question.isRequired ?? true,
+                            options: question.options || null,
+                            conditionalLogic: question.conditionalLogic || null
+                        }))
+                    }
+                }
+            });
+        }
 
         return tx.campaign.findUnique({
             where: { id: createdCampaign.id },
@@ -213,6 +284,7 @@ export const getCampaignById = async (campaignId, user) => {
 };
 
 export const updateCampaignStatus = async (campaignId, status, user) => {
+    requireCollegeAdmin(user);
     if (!CAMPAIGN_STATUSES.has(status)) throw new Error("Unsupported campaign status");
 
     const existing = await getCampaignById(campaignId, user);
@@ -342,13 +414,33 @@ export const getStudentCampaigns = async (studentId, collegeId) => {
 };
 
 export const getFacultyCampaigns = async (user) => {
-    return prisma.campaign.findMany({
+    const assignments = await prisma.courseAssignment.findMany({
+        where: {
+            facultyId: user.id,
+            ...(isSuperAdmin(user) ? {} : { collegeId: collegeScope(user) })
+        },
+        include: { course: true }
+    });
+
+    const campaigns = await prisma.campaign.findMany({
         where: {
             ...(isSuperAdmin(user) ? {} : { collegeId: collegeScope(user) }),
-            targetCourseAssignment: { facultyId: user.id },
             status: { in: ["PUBLISHED", "ACTIVE", "CLOSED", "ARCHIVED"] }
         },
         include: includeCampaignDetails,
         orderBy: { createdAt: "desc" }
+    });
+
+    return campaigns.filter((campaign) => {
+        if (campaign.targetCourseAssignmentId) {
+            return campaign.targetCourseAssignment?.facultyId === user.id;
+        }
+
+        return assignments.some((assignment) => {
+            const departmentMatch = !campaign.targetDepartmentId || assignment.course.departmentId === campaign.targetDepartmentId;
+            const semesterMatch = !campaign.targetSemesterId || assignment.semesterId === campaign.targetSemesterId;
+            const sectionMatch = !campaign.targetSectionId || assignment.sectionId === campaign.targetSectionId;
+            return departmentMatch && semesterMatch && sectionMatch;
+        });
     });
 };

@@ -8,7 +8,111 @@ import crypto from "crypto";
 
 const getRoleName = (user) => user?.role?.name || user?.role;
 const isSuperAdmin = (user) => getRoleName(user) === "SUPER_ADMIN";
-const isAdminLike = (user) => ["ADMIN", "FACULTY", "SUPER_ADMIN"].includes(getRoleName(user));
+const isAdminLike = (user) => ["ADMIN", "FACULTY"].includes(getRoleName(user));
+const textQuestionTypes = new Set(["TEXT", "SHORT_ANSWER", "PARAGRAPH"]);
+const ratingQuestionTypes = new Set(["RATING", "LINEAR_SCALE", "RATING_SCALE", "RATING_10"]);
+const singleChoiceQuestionTypes = new Set(["MCQ", "MULTIPLE_CHOICE", "DROPDOWN", "YES_NO"]);
+const checkboxQuestionTypes = new Set(["CHECKBOX", "CHECKBOXES"]);
+
+const getOrCreateSemesterByNumber = async (semesterNumber, collegeId) => {
+    const number = Number(semesterNumber);
+    if (!Number.isInteger(number) || number < 1 || number > 8) {
+        throw new Error("Semester target must be between 1 and 8");
+    }
+
+    const currentYear = await prisma.academicYear.findFirst({
+        where: { collegeId, isCurrent: true }
+    });
+
+    const academicYear = currentYear || await prisma.academicYear.create({
+        data: {
+            collegeId,
+            name: `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`,
+            isCurrent: true
+        }
+    });
+
+    return prisma.semester.upsert({
+        where: {
+            academicYearId_number: {
+                academicYearId: academicYear.id,
+                number
+            }
+        },
+        update: { name: `Semester ${number}` },
+        create: {
+            academicYearId: academicYear.id,
+            number,
+            name: `Semester ${number}`
+        }
+    });
+};
+
+const buildFormTarget = async (data, collegeId) => {
+    const target = {};
+
+    if (data.targetDepartmentId) {
+        const department = await prisma.department.findFirst({
+            where: { id: data.targetDepartmentId, collegeId }
+        });
+        if (!department) throw new Error("Target department not found");
+        target.targetDepartmentId = department.id;
+    }
+
+    if (data.targetSemesterId) {
+        const semester = await prisma.semester.findFirst({
+            where: { id: data.targetSemesterId, academicYear: { collegeId } }
+        });
+        if (!semester) throw new Error("Target semester not found");
+        target.targetSemesterId = semester.id;
+    } else if (data.targetSemesterNumber) {
+        const semester = await getOrCreateSemesterByNumber(data.targetSemesterNumber, collegeId);
+        target.targetSemesterId = semester.id;
+    }
+
+    if (data.targetSectionId) {
+        const section = await prisma.section.findFirst({
+            where: { id: data.targetSectionId, department: { collegeId } }
+        });
+        if (!section) throw new Error("Target section not found");
+        target.targetSectionId = section.id;
+        target.targetDepartmentId = target.targetDepartmentId || section.departmentId;
+        target.targetSemesterId = target.targetSemesterId || section.semesterId;
+    }
+
+    return target;
+};
+
+const upsertDeliveryCampaignForForm = async (tx, form, data, user) => {
+    const target = await buildFormTarget(data, form.collegeId);
+    const campaignData = {
+        title: form.title,
+        description: form.description || null,
+        type: "FACULTY_EVAL",
+        collegeId: form.collegeId,
+        createdById: user.id,
+        status: form.status === "PUBLISHED" ? "PUBLISHED" : "DRAFT",
+        startDate: null,
+        endDate: form.expiresAt || null,
+        targetDepartmentId: target.targetDepartmentId || null,
+        targetSemesterId: target.targetSemesterId || null,
+        targetSectionId: target.targetSectionId || null
+    };
+
+    if (form.campaignId) {
+        return tx.campaign.update({
+            where: { id: form.campaignId },
+            data: campaignData
+        });
+    }
+
+    const campaign = await tx.campaign.create({ data: campaignData });
+    await tx.feedbackForm.update({
+        where: { id: form.id },
+        data: { campaignId: campaign.id }
+    });
+    return campaign;
+};
 
 const byCollegeScope = (user) => {
     if (isSuperAdmin(user)) return {};
@@ -21,32 +125,48 @@ const byCollegeScope = (user) => {
 // ============================================================================
 
 export const createFeedbackForm = async (data, user) => {
+    if (getRoleName(user) !== "ADMIN") {
+        throw new Error("Only College Admins can create feedback forms");
+    }
+
     if (!user.collegeId) {
         throw new Error("Cannot create a form without an assigned college");
     }
 
-    const form = await prisma.feedbackForm.create({
-        data: {
-            title: data.title,
-            description: data.description,
-            collegeId: user.collegeId,
-            status: data.status || "DRAFT",
-            scheduledFor: data.scheduledFor ? new Date(data.scheduledFor) : null,
-            expiresAt: data.expiresAt ? new Date(data.expiresAt) : null,
-            questions: {
-                create: data.questions.map(q => ({
-                    orderIndex: q.orderIndex,
-                    questionText: q.questionText,
-                    questionType: q.questionType,
-                    isRequired: q.isRequired,
-                    options: q.options || null,
-                    conditionalLogic: q.conditionalLogic || null
-                }))
+    const form = await prisma.$transaction(async (tx) => {
+        const created = await tx.feedbackForm.create({
+            data: {
+                title: data.title,
+                description: data.description,
+                collegeId: user.collegeId,
+                status: data.status || "DRAFT",
+                scheduledFor: data.scheduledFor ? new Date(data.scheduledFor) : null,
+                expiresAt: data.expiresAt ? new Date(data.expiresAt) : null,
+                questions: {
+                    create: data.questions.map(q => ({
+                        orderIndex: q.orderIndex,
+                        questionText: q.questionText,
+                        questionType: q.questionType,
+                        isRequired: q.isRequired,
+                        options: q.options || null,
+                        conditionalLogic: q.conditionalLogic || null
+                    }))
+                }
+            },
+            include: {
+                questions: true
             }
-        },
-        include: {
-            questions: true
-        }
+        });
+
+        await upsertDeliveryCampaignForForm(tx, created, data, user);
+
+        return tx.feedbackForm.findUnique({
+            where: { id: created.id },
+            include: {
+                questions: true,
+                campaign: true
+            }
+        });
     });
 
     await auditLogger({
@@ -62,13 +182,17 @@ export const createFeedbackForm = async (data, user) => {
 };
 
 export const updateFeedbackForm = async (formId, data, user) => {
+    if (getRoleName(user) !== "ADMIN") {
+        throw new Error("Only College Admins can update feedback forms");
+    }
+
     // 1. Check if form exists and belongs to the college
     const existingForm = await prisma.feedbackForm.findUnique({
         where: { id: formId }
     });
 
     if (!existingForm) throw new Error("Form not found");
-    if (existingForm.collegeId !== user.collegeId && !isSuperAdmin(user)) {
+    if (existingForm.collegeId !== user.collegeId) {
         throw new Error("Unauthorized access to form");
     }
 
@@ -113,21 +237,47 @@ export const updateFeedbackForm = async (formId, data, user) => {
         };
     }
 
-    const updatedForm = await prisma.feedbackForm.update({
-        where: { id: formId },
-        data: updateData,
-        include: {
-            questions: {
-                orderBy: { orderIndex: "asc" }
-            },
-            _count: {
-                select: {
-                    submissions: {
-                        where: { status: "COMPLETED" }
+    const updatedForm = await prisma.$transaction(async (tx) => {
+        const updated = await tx.feedbackForm.update({
+            where: { id: formId },
+            data: updateData,
+            include: {
+                questions: {
+                    orderBy: { orderIndex: "asc" }
+                },
+                campaign: true,
+                _count: {
+                    select: {
+                        submissions: {
+                            where: { status: "COMPLETED" }
+                        }
                     }
                 }
             }
-        }
+        });
+
+        await upsertDeliveryCampaignForForm(tx, updated, data, user);
+
+        return tx.feedbackForm.findUnique({
+            where: { id: formId },
+            include: {
+                questions: { orderBy: { orderIndex: "asc" } },
+                campaign: {
+                    include: {
+                        targetDepartment: { select: { id: true, name: true, code: true } },
+                        targetSemester: { select: { id: true, number: true, name: true } },
+                        targetSection: { select: { id: true, name: true } }
+                    }
+                },
+                _count: {
+                    select: {
+                        submissions: {
+                            where: { status: "COMPLETED" }
+                        }
+                    }
+                }
+            }
+        });
     });
 
     await auditLogger({
@@ -143,13 +293,17 @@ export const updateFeedbackForm = async (formId, data, user) => {
 };
 
 export const deleteFeedbackForm = async (formId, user) => {
+    if (getRoleName(user) !== "ADMIN") {
+        throw new Error("Only College Admins can delete feedback forms");
+    }
+
     const existingForm = await prisma.feedbackForm.findUnique({
         where: { id: formId },
         include: { _count: { select: { submissions: true } } }
     });
 
     if (!existingForm) throw new Error("Form not found");
-    if (existingForm.collegeId !== user.collegeId && !isSuperAdmin(user)) {
+    if (existingForm.collegeId !== user.collegeId) {
         throw new Error("Unauthorized access to form");
     }
     
@@ -218,6 +372,13 @@ export const getFormsForAdmin = async (user) => {
         include: {
             questions: {
                 orderBy: { orderIndex: "asc" }
+            },
+            campaign: {
+                include: {
+                    targetDepartment: { select: { id: true, name: true, code: true } },
+                    targetSemester: { select: { id: true, number: true, name: true } },
+                    targetSection: { select: { id: true, name: true } }
+                }
             },
             _count: {
                 select: {
@@ -408,7 +569,7 @@ export const submitFeedback = async (data, user, clientInfo = {}) => {
 
     const encryptedResponses = Array.from(responsesByQuestionId.values()).map(response => {
         const question = questionsById.get(response.questionId);
-        const intelligence = question?.questionType === "TEXT" && response.answerText
+        const intelligence = textQuestionTypes.has(question?.questionType) && response.answerText
             ? analyzeTextResponse(response.answerText)
             : {};
 
@@ -429,6 +590,7 @@ export const submitFeedback = async (data, user, clientInfo = {}) => {
     const submission = await prisma.feedbackSubmission.create({
         data: {
             formId: data.formId,
+            collegeId: form.collegeId,
             studentId: user.id,
             anonymousToken,
             status: "COMPLETED",

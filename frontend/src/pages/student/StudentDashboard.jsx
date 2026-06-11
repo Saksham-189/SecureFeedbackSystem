@@ -7,9 +7,10 @@ import { Badge, Button, Skeleton } from "../../components/ui";
 
 const formatDate = (value) => value ? new Date(value).toLocaleDateString() : "Open";
 
-const getTimeLabel = (campaign) => {
-    if (!campaign.endDate) return "No deadline";
-    const ms = new Date(campaign.endDate).getTime() - Date.now();
+const getTimeLabel = (form) => {
+    const dueDate = form.expiresAt || form.campaign?.endDate;
+    if (!dueDate) return "No deadline";
+    const ms = new Date(dueDate).getTime() - Date.now();
     if (ms <= 0) return "Closing";
     const days = Math.ceil(ms / (24 * 60 * 60 * 1000));
     return days === 1 ? "Ends in 1 day" : `Ends in ${days} days`;
@@ -60,7 +61,7 @@ export default function StudentDashboard() {
                         <h1 className="sf-page-title mt-1">Hello, {user?.name?.split(" ")[0] || "Student"}</h1>
                     </div>
                     <div className="text-left md:text-right">
-                        <span className="sf-label">Active Campaigns</span>
+                        <span className="sf-label">Available Forms</span>
                         <div className="flex md:justify-end items-center gap-3 mt-2">
                             <div className="w-32 h-2 bg-[#eceef0] rounded-full overflow-hidden">
                                 <div className="bg-black h-full" style={{ width: `${campaigns.length ? Math.min(100, campaigns.length * 25) : 0}%` }} />
@@ -90,7 +91,7 @@ export default function StudentDashboard() {
                 ) : pendingForms.length === 0 ? (
                     <div className="sf-panel-soft p-8 text-center">
                         <p className="font-semibold text-black">All caught up</p>
-                        <p className="text-sm text-[#45464d] mt-1">No eligible campaigns are waiting for your response.</p>
+                        <p className="text-sm text-[#45464d] mt-1">No eligible feedback forms are waiting for your response.</p>
                     </div>
                 ) : (
                     <div className="space-y-4">
@@ -100,13 +101,13 @@ export default function StudentDashboard() {
                                     <div className="space-y-1">
                                         <div className="flex flex-wrap items-center gap-2">
                                             <Badge variant={index === 0 ? "danger" : "secondary"}>{index === 0 ? "Priority" : "Standard"}</Badge>
-                                            <span className="sf-label">{form.campaign.targetCourseAssignment?.course?.code || form.campaign.targetDepartment?.code || form.campaign.type}</span>
+                                            <span className="sf-label">{form.campaign.targetDepartment?.code || "Feedback Form"}</span>
                                         </div>
                                         <h3 className="sf-section-title">{form.title}</h3>
-                                        <p className="text-sm text-[#45464d] max-w-xl">{form.description || form.campaign.description || "Confidential feedback campaign."}</p>
+                                        <p className="text-sm text-[#45464d] max-w-xl">{form.description || "Confidential faculty feedback form."}</p>
                                     </div>
                                     <div className="flex flex-col md:items-end gap-2 shrink-0">
-                                        <span className={`sf-label ${index === 0 ? "text-[#ba1a1a]" : ""}`}>{getTimeLabel(form.campaign)}</span>
+                                        <span className={`sf-label ${index === 0 ? "text-[#ba1a1a]" : ""}`}>{getTimeLabel(form)}</span>
                                         <Button onClick={() => navigate(`/student/forms/${form.id}/submit`)}>
                                             Start Survey
                                         </Button>
@@ -124,13 +125,13 @@ export default function StudentDashboard() {
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-start">
                 <section className="lg:col-span-8 flex flex-col gap-4">
                     <div>
-                        <h2 className="text-base font-semibold">Submission History</h2>
+                        <h2 className="text-base font-semibold">Completed Forms</h2>
                     </div>
                     <div className="sf-panel overflow-hidden">
                         <table className="w-full text-left border-collapse text-sm">
                             <thead>
                                 <tr className="bg-[#f2f4f6] border-b border-[#c6c6cd]">
-                                    <th className="px-4 py-3 sf-label">Campaign</th>
+                                    <th className="px-4 py-3 sf-label">Feedback Form</th>
                                     <th className="px-4 py-3 sf-label text-center">Status</th>
                                     <th className="px-4 py-3 sf-label text-right">Date</th>
                                 </tr>
@@ -163,13 +164,13 @@ export default function StudentDashboard() {
                     </div>
                     {campaigns.length === 0 ? (
                         <div className="sf-panel p-4">
-                            <span className="sf-label">No Announcements</span>
-                            <p className="text-sm text-[#45464d] mt-2">Campaign updates will appear here when your institution publishes them.</p>
+                            <span className="sf-label">No Updates</span>
+                            <p className="text-sm text-[#45464d] mt-2">Feedback form updates will appear here when your institution publishes them.</p>
                         </div>
                     ) : campaigns.slice(0, 2).map((campaign) => (
                         <div key={campaign.id} className="sf-panel p-4 space-y-2">
                             <span className="sf-label text-[#3980f4]">{campaign.type?.replace("_", " ")}</span>
-                            <h4 className="font-semibold leading-tight">{campaign.title}</h4>
+                            <h4 className="font-semibold leading-tight">{campaign.forms?.[0]?.title || campaign.title}</h4>
                             <p className="text-sm text-[#45464d]">{campaign.description || `Open until ${formatDate(campaign.endDate)}`}</p>
                         </div>
                     ))}

@@ -7,10 +7,14 @@ import { hashPassword } from "../../utils/hashPassword.js";
  * Excludes super-admins to prevent horizontal privilege escalation or viewing.
  */
 export const fetchUsers = async (collegeId, requestingUserRole) => {
-    const where = { collegeId };
-    if (requestingUserRole !== 'SUPER_ADMIN') {
-        where.role = { name: { not: 'SUPER_ADMIN' } };
+    const where = requestingUserRole === "SUPER_ADMIN"
+        ? { role: { name: "ADMIN" } }
+        : { collegeId, role: { name: { in: ["FACULTY", "STUDENT"] } } };
+
+    if (requestingUserRole !== "SUPER_ADMIN" && !collegeId) {
+        throw new Error("College Admin is not assigned to a college");
     }
+
     return await prisma.user.findMany({
         where,
         select: {
@@ -23,7 +27,26 @@ export const fetchUsers = async (collegeId, requestingUserRole) => {
             createdAt: true,
             role: {
                 select: { name: true }
-            }
+            },
+            college: { select: { id: true, name: true } },
+            department: { select: { id: true, name: true, code: true } },
+            enrollments: {
+                select: {
+                    section: {
+                        select: {
+                            id: true,
+                            name: true,
+                            semester: { select: { id: true, number: true, name: true } }
+                        }
+                    },
+                    semester: { select: { id: true, number: true, name: true } }
+                },
+                take: 1,
+                orderBy: { createdAt: "desc" }
+            },
+            employeeId: true,
+            studentIdNumber: true,
+            designation: true
         },
         orderBy: { createdAt: 'desc' }
     });
@@ -35,37 +58,165 @@ export const fetchUsers = async (collegeId, requestingUserRole) => {
  * - Admin cannot provision SUPER_ADMIN.
  * - Password is automatically hashed before DB storage.
  */
+const getOrCreateSemesterByNumber = async (semesterNumber, collegeId) => {
+    const number = Number(semesterNumber);
+    if (!Number.isInteger(number) || number < 1 || number > 8) {
+        throw new Error("Semester must be between 1 and 8");
+    }
+
+    const currentYear = await prisma.academicYear.findFirst({
+        where: { collegeId, isCurrent: true }
+    });
+
+    const academicYear = currentYear || await prisma.academicYear.create({
+        data: {
+            collegeId,
+            name: `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`,
+            isCurrent: true
+        }
+    });
+
+    return prisma.semester.upsert({
+        where: {
+            academicYearId_number: {
+                academicYearId: academicYear.id,
+                number
+            }
+        },
+        update: { name: `Semester ${number}` },
+        create: {
+            academicYearId: academicYear.id,
+            number,
+            name: `Semester ${number}`
+        }
+    });
+};
+
 export const provisionUser = async (data, adminUser) => {
-    const { email, name, password, roleName } = data;
+    const {
+        email,
+        name,
+        password,
+        roleName,
+        collegeId,
+        departmentId,
+        employeeId,
+        studentIdNumber,
+        designation,
+        sectionId,
+        semesterId,
+        semesterNumber
+    } = data;
+    const adminRole = adminUser.role;
 
     // Fetch the role ID
     const role = await prisma.role.findUnique({ where: { name: roleName } });
     if (!role) throw new Error("Invalid role specified");
 
-    // Prevent privilege escalation
-    if (roleName === "SUPER_ADMIN" && adminUser.role !== "SUPER_ADMIN") {
-        throw new Error("Unauthorized to provision SUPER_ADMIN accounts");
+    if (roleName === "SUPER_ADMIN") {
+        throw new Error("SUPER_ADMIN accounts cannot be provisioned from this screen");
+    }
+
+    if (adminRole === "SUPER_ADMIN" && roleName !== "ADMIN") {
+        throw new Error("Super Admin provisions college admin accounts only");
+    }
+
+    if (adminRole === "ADMIN" && !["FACULTY", "STUDENT"].includes(roleName)) {
+        throw new Error("College Admin can provision faculty and student accounts only");
     }
 
     const existingUser = await prisma.user.findUnique({ where: { email } });
     if (existingUser) throw new Error("Email already registered");
 
+    const targetCollegeId = adminRole === "SUPER_ADMIN" ? collegeId : adminUser.collegeId;
+    if (!targetCollegeId) throw new Error("College is required");
+
+    const college = await prisma.college.findUnique({ where: { id: targetCollegeId } });
+    if (!college) throw new Error("College not found");
+    if (!college.isActive) throw new Error("College is disabled");
+
+    if (adminRole === "SUPER_ADMIN" && departmentId) {
+        throw new Error("College Admin accounts cannot be assigned to a department");
+    }
+
+    if (adminRole === "ADMIN" && roleName === "FACULTY" && !departmentId) {
+        throw new Error("Department is required for faculty");
+    }
+
+    if (adminRole === "ADMIN" && roleName === "STUDENT" && (!departmentId || !sectionId || !semesterNumber)) {
+        throw new Error("Department, semester, and section are required for students");
+    }
+
+    if (departmentId) {
+        const department = await prisma.department.findFirst({
+            where: { id: departmentId, collegeId: targetCollegeId }
+        });
+        if (!department) throw new Error("Department not found for selected college");
+    }
+
+    let resolvedSemester = null;
+    let resolvedSection = null;
+
+    if (roleName === "STUDENT") {
+        resolvedSemester = semesterId
+            ? await prisma.semester.findFirst({
+                where: { id: semesterId, academicYear: { collegeId: targetCollegeId } }
+            })
+            : await getOrCreateSemesterByNumber(semesterNumber, targetCollegeId);
+
+        if (!resolvedSemester) throw new Error("Semester not found");
+
+        resolvedSection = await prisma.section.findFirst({
+            where: {
+                id: sectionId,
+                departmentId,
+                semesterId: resolvedSemester.id,
+                department: { collegeId: targetCollegeId }
+            }
+        });
+        if (!resolvedSection) throw new Error("Section not found for selected department and semester");
+    }
+
     const hashedPassword = await hashPassword(password);
 
-    const newUser = await prisma.user.create({
-        data: {
-            email,
-            name,
-            passwordHash: hashedPassword,
-            roleId: role.id,
-            collegeId: adminUser.collegeId // Strict scoping to admin's college
-        },
-        select: {
-            id: true,
-            email: true,
-            name: true,
-            role: { select: { name: true } }
+    const newUser = await prisma.$transaction(async (tx) => {
+        const created = await tx.user.create({
+            data: {
+                email,
+                name,
+                passwordHash: hashedPassword,
+                roleId: role.id,
+                collegeId: targetCollegeId,
+                departmentId: departmentId || null,
+                employeeId: roleName === "FACULTY" ? (employeeId || null) : null,
+                studentIdNumber: roleName === "STUDENT" ? (studentIdNumber || null) : null,
+                designation: roleName === "FACULTY" ? (designation || null) : null
+            },
+            select: {
+                id: true,
+                email: true,
+                name: true,
+                role: { select: { name: true } },
+                college: { select: { id: true, name: true } },
+                department: { select: { id: true, name: true, code: true } },
+                employeeId: true,
+                studentIdNumber: true,
+                designation: true
+            }
+        });
+
+        if (roleName === "STUDENT") {
+            await tx.enrollment.create({
+                data: {
+                    collegeId: targetCollegeId,
+                    studentId: created.id,
+                    sectionId: resolvedSection.id,
+                    semesterId: resolvedSemester.id
+                }
+            });
         }
+
+        return created;
     });
 
     await auditLogger({
@@ -91,8 +242,12 @@ export const changeUserLockStatus = async (targetUserId, isLocked, adminUser) =>
     });
 
     if (!targetUser) throw new Error("User not found");
-    // collegeId comes from JWT payload directly
-    if (targetUser.collegeId !== adminUser.collegeId) throw new Error("Unauthorized");
+    const adminRole = adminUser.role;
+    if (adminRole === "SUPER_ADMIN") {
+        if (targetUser.role.name !== "ADMIN") throw new Error("Super Admin can only manage College Admin accounts");
+    } else if (targetUser.collegeId !== adminUser.collegeId) {
+        throw new Error("Unauthorized");
+    }
 
     // Prevent locking yourself or superior admins
     if (targetUser.id === adminUser.id) throw new Error("Cannot modify your own lock status");
@@ -130,18 +285,14 @@ export const changeUserLockStatus = async (targetUserId, isLocked, adminUser) =>
  * Fetch Audit Logs for the SOC Dashboard.
  * Strict college-level scoping.
  */
-export const fetchAuditLogs = async (collegeId, limit = 50) => {
-    // We get audit logs generated by users within this college
+export const fetchAuditLogs = async (user, limit = 50) => {
     return await prisma.auditLog.findMany({
-        where: {
-            user: {
-                collegeId: collegeId
-            }
-        },
+        where: user.role === "SUPER_ADMIN" ? {} : { collegeId: user.collegeId },
         include: {
             user: {
                 select: { email: true, name: true, role: { select: { name: true } } }
-            }
+            },
+            college: { select: { id: true, name: true } }
         },
         orderBy: { timestamp: 'desc' },
         take: limit
@@ -152,11 +303,9 @@ export const fetchAuditLogs = async (collegeId, limit = 50) => {
  * Fetch System Anomalies (Threat detection).
  * Used for SIEM monitoring by admins.
  */
-export const fetchAnomalies = async (collegeId, limit = 20) => {
+export const fetchAnomalies = async (user, limit = 20) => {
     return await prisma.abuseAnomaly.findMany({
-        where: {
-            form: { collegeId: collegeId }
-        },
+        where: user.role === "SUPER_ADMIN" ? {} : { form: { collegeId: user.collegeId } },
         include: {
             form: { select: { title: true } }
         },
@@ -168,12 +317,11 @@ export const fetchAnomalies = async (collegeId, limit = 20) => {
 /**
  * Fetch real-time security intelligence metrics for the SOC Dashboard.
  */
-export const fetchSecurityMetrics = async (collegeId) => {
+export const fetchSecurityMetrics = async (user) => {
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-    const baseWhere = {
-        user: { collegeId }
-    };
+    const baseWhere = user.role === "SUPER_ADMIN" ? {} : { collegeId: user.collegeId };
+    const userWhere = user.role === "SUPER_ADMIN" ? {} : { collegeId: user.collegeId };
 
     const [
         failedLogins,
@@ -187,7 +335,7 @@ export const fetchSecurityMetrics = async (collegeId) => {
             where: { ...baseWhere, action: 'LOGIN_FAILED', timestamp: { gte: twentyFourHoursAgo } }
         }),
         prisma.user.count({
-            where: { collegeId, isLocked: true }
+            where: { ...userWhere, isLocked: true }
         }),
         prisma.auditLog.count({
             where: { ...baseWhere, timestamp: { gte: twentyFourHoursAgo } }

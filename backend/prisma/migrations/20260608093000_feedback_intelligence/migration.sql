@@ -4,3 +4,7 @@ ADD COLUMN "sentimentScore" DOUBLE PRECISION,
 ADD COLUMN "themeTags" JSONB;
 
 CREATE INDEX "FeedbackResponse_sentimentLabel_idx" ON "FeedbackResponse"("sentimentLabel");
+
+ALTER TABLE "User"
+ADD COLUMN "employeeId" TEXT,
+ADD COLUMN "studentIdNumber" TEXT;

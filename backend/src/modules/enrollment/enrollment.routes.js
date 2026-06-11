@@ -10,31 +10,31 @@ router.use(authMiddleware);
 
 router.get(
     "/",
-    rbacMiddleware(ROLES.ADMIN, ROLES.SUPER_ADMIN),
+    rbacMiddleware(ROLES.ADMIN),
     enrollmentController.listEnrollments
 );
 
 router.post(
     "/",
-    rbacMiddleware(ROLES.ADMIN, ROLES.SUPER_ADMIN),
+    rbacMiddleware(ROLES.ADMIN),
     enrollmentController.addEnrollment
 );
 
 router.post(
     "/bulk",
-    rbacMiddleware(ROLES.ADMIN, ROLES.SUPER_ADMIN),
+    rbacMiddleware(ROLES.ADMIN),
     enrollmentController.addBulkEnrollments
 );
 
 router.get(
     "/course-assignments",
-    rbacMiddleware(ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.FACULTY),
+    rbacMiddleware(ROLES.ADMIN, ROLES.FACULTY),
     enrollmentController.listCourseAssignments
 );
 
 router.post(
     "/course-assignments",
-    rbacMiddleware(ROLES.ADMIN, ROLES.SUPER_ADMIN),
+    rbacMiddleware(ROLES.ADMIN),
     enrollmentController.addCourseAssignment
 );
 

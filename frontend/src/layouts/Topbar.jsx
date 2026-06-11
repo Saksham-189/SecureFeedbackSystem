@@ -10,17 +10,20 @@ const topNavByRole = {
     ],
     [ROLES.FACULTY]: [
         { label: "Dashboard", path: "/faculty" },
+        { label: "Profile", path: "/faculty/profile" },
     ],
     [ROLES.ADMIN]: [
         { label: "Dashboard", path: "/admin" },
         { label: "Analytics", path: "/admin" },
-        { label: "Campaigns", path: "/admin/campaigns" },
+        { label: "Forms", path: "/admin/forms" },
         { label: "Reports", path: "/admin/audit-logs" },
+        { label: "Profile", path: "/admin/profile" },
     ],
     [ROLES.SUPER_ADMIN]: [
         { label: "Dashboard", path: "/superadmin" },
-        { label: "Campaigns", path: "/superadmin/campaigns" },
+        { label: "Colleges", path: "/superadmin/colleges" },
         { label: "Reports", path: "/superadmin/audit-logs" },
+        { label: "Profile", path: "/superadmin/profile" },
     ],
 };
 
@@ -38,7 +41,7 @@ const Topbar = ({ onMenuToggle, compact = false }) => {
         {
             label: "Profile",
             icon: "P",
-            onClick: () => navigate(user?.role === ROLES.STUDENT ? "/student/profile" : user?.role === ROLES.FACULTY ? "/faculty" : "/admin/users"),
+            onClick: () => navigate(profilePathForRole(user?.role)),
         },
         { divider: true },
         {
@@ -112,5 +115,12 @@ const Topbar = ({ onMenuToggle, compact = false }) => {
         </header>
     );
 };
+
+function profilePathForRole(role) {
+    if (role === ROLES.SUPER_ADMIN) return "/superadmin/profile";
+    if (role === ROLES.ADMIN) return "/admin/profile";
+    if (role === ROLES.FACULTY) return "/faculty/profile";
+    return "/student/profile";
+}
 
 export default Topbar;

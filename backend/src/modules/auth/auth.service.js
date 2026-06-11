@@ -7,6 +7,40 @@ import auditLogger from "../../utils/auditLogger.js";
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes
 
+const getOrCreateSemesterByNumber = async (semesterNumber, collegeId) => {
+    const number = Number(semesterNumber);
+    if (!Number.isInteger(number) || number < 1 || number > 8) {
+        throw new Error("Semester must be between 1 and 8");
+    }
+
+    const currentYear = await prisma.academicYear.findFirst({
+        where: { collegeId, isCurrent: true }
+    });
+
+    const academicYear = currentYear || await prisma.academicYear.create({
+        data: {
+            collegeId,
+            name: `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`,
+            isCurrent: true
+        }
+    });
+
+    return prisma.semester.upsert({
+        where: {
+            academicYearId_number: {
+                academicYearId: academicYear.id,
+                number
+            }
+        },
+        update: { name: `Semester ${number}` },
+        create: {
+            academicYearId: academicYear.id,
+            number,
+            name: `Semester ${number}`
+        }
+    });
+};
+
 export const register = async (data) => {
     const existingUser = await prisma.user.findUnique({
         where: { email: data.email }
@@ -23,15 +57,48 @@ export const register = async (data) => {
         throw new Error("System configuration error: STUDENT role not found");
     }
 
-    const user = await prisma.user.create({
-        data: {
-            name: data.name,
-            email: data.email,
-            passwordHash: hashedPassword,
-            collegeId: data.collegeId,
-            departmentId: data.departmentId || null,
-            roleId: studentRole.id
+    const college = await prisma.college.findUnique({ where: { id: data.collegeId } });
+    if (!college) throw new Error("Selected college does not exist");
+    if (!college.isActive) throw new Error("Selected college is disabled");
+
+    const department = await prisma.department.findFirst({
+        where: { id: data.departmentId, collegeId: data.collegeId }
+    });
+    if (!department) throw new Error("Selected department does not belong to the selected college");
+
+    const semester = await getOrCreateSemesterByNumber(data.semesterNumber, data.collegeId);
+    const section = await prisma.section.findFirst({
+        where: {
+            id: data.sectionId,
+            departmentId: data.departmentId,
+            semesterId: semester.id,
+            department: { collegeId: data.collegeId }
         }
+    });
+    if (!section) throw new Error("Selected section does not match the selected department and semester");
+
+    const user = await prisma.$transaction(async (tx) => {
+        const created = await tx.user.create({
+            data: {
+                name: data.name,
+                email: data.email,
+                passwordHash: hashedPassword,
+                collegeId: data.collegeId,
+                departmentId: data.departmentId,
+                roleId: studentRole.id
+            }
+        });
+
+        await tx.enrollment.create({
+            data: {
+                collegeId: data.collegeId,
+                studentId: created.id,
+                sectionId: section.id,
+                semesterId: semester.id
+            }
+        });
+
+        return created;
     });
 
     await auditLogger({
@@ -46,17 +113,32 @@ export const register = async (data) => {
 };
 
 export const getRegistrationMetadata = async () => {
-    const colleges = await prisma.college.findMany({ select: { id: true, name: true } });
-    const departments = await prisma.department.findMany({ 
-        select: { id: true, name: true, code: true, collegeId: true } 
+    const colleges = await prisma.college.findMany({
+        where: { isActive: true },
+        select: { id: true, name: true },
+        orderBy: { name: "asc" }
     });
-    return { colleges, departments };
+    const departments = await prisma.department.findMany({
+        select: { id: true, name: true, code: true, collegeId: true },
+        orderBy: [{ collegeId: "asc" }, { code: "asc" }]
+    });
+    const sections = await prisma.section.findMany({
+        select: {
+            id: true,
+            name: true,
+            departmentId: true,
+            department: { select: { id: true, name: true, code: true, collegeId: true } },
+            semester: { select: { id: true, number: true, name: true } }
+        },
+        orderBy: [{ department: { code: "asc" } }, { semester: { number: "asc" } }, { name: "asc" }]
+    });
+    return { colleges, departments, sections };
 };
 
 export const login = async (data, clientInfo) => {
     const user = await prisma.user.findUnique({
         where: { email: data.email },
-        include: { role: true }
+        include: { role: true, college: true }
     });
 
     if (!user) {
@@ -69,6 +151,23 @@ export const login = async (data, clientInfo) => {
             userAgent: clientInfo.userAgent
         });
         throw new Error("Invalid credentials");
+    }
+
+    if (user.role.name !== "SUPER_ADMIN" && !user.collegeId) {
+        throw new Error("Account is not assigned to a college");
+    }
+
+    if (user.role.name !== "SUPER_ADMIN" && !user.college?.isActive) {
+        await auditLogger({
+            userId: user.id,
+            action: "LOGIN_FAILED_COLLEGE_DISABLED",
+            resourceType: "AUTH",
+            resourceId: user.id,
+            severity: "WARNING",
+            ipAddress: clientInfo.ipAddress,
+            userAgent: clientInfo.userAgent
+        });
+        throw new Error("Your college is currently disabled");
     }
 
     // Check if account is locked
@@ -158,7 +257,7 @@ export const login = async (data, clientInfo) => {
     });
 
     return {
-        user: { id: user.id, email: user.email, name: user.name, role: user.role.name },
+        user: { id: user.id, email: user.email, name: user.name, role: user.role.name, collegeId: user.collegeId },
         accessToken,
         refreshToken
     };

@@ -24,28 +24,28 @@ const router = express.Router();
 router.post(
   "/",
   authMiddleware,
-  rbacMiddleware(ROLES.ADMIN, ROLES.SUPER_ADMIN),
+  rbacMiddleware(ROLES.ADMIN),
   createForm
 );
 
 router.put(
   "/:formId",
   authMiddleware,
-  rbacMiddleware(ROLES.ADMIN, ROLES.SUPER_ADMIN),
+  rbacMiddleware(ROLES.ADMIN),
   updateForm
 );
 
 router.delete(
   "/:formId",
   authMiddleware,
-  rbacMiddleware(ROLES.ADMIN, ROLES.SUPER_ADMIN),
+  rbacMiddleware(ROLES.ADMIN),
   deleteForm
 );
 
 router.get(
   "/admin/forms",
   authMiddleware,
-  rbacMiddleware(ROLES.ADMIN, ROLES.FACULTY, ROLES.SUPER_ADMIN),
+  rbacMiddleware(ROLES.ADMIN, ROLES.FACULTY),
   getAdminForms
 );
 

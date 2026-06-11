@@ -12,6 +12,10 @@ const handle = (fn, statusCode = 200) => async (req, res) => {
 export const listDepartments = handle((req) => academicService.getDepartments(req.user));
 export const addDepartment = handle((req) => academicService.createDepartment(req.body, req.user), 201);
 
+export const listColleges = handle(() => academicService.getColleges());
+export const addCollege = handle((req) => academicService.createCollege(req.body, req.user), 201);
+export const editCollege = handle((req) => academicService.updateCollege(req.params.collegeId, req.body, req.user));
+
 export const listPrograms = handle((req) => academicService.getPrograms(req.params.deptId, req.user));
 export const addProgram = handle((req) => academicService.createProgram(req.body, req.user), 201);
 

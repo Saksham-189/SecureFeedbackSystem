@@ -7,23 +7,23 @@ export default function SuperAdminDashboard() {
     const navigate = useNavigate();
     const { request, loading } = useApi();
     const [users, setUsers] = useState([]);
+    const [colleges, setColleges] = useState([]);
     const [campaigns, setCampaigns] = useState([]);
-    const [departments, setDepartments] = useState([]);
     const [auditLogs, setAuditLogs] = useState([]);
     const [securityMetrics, setSecurityMetrics] = useState(null);
 
     const loadData = useCallback(async () => {
-        const [usersRes, campaignRes, departmentRes, auditRes, securityRes] = await Promise.allSettled([
+        const [usersRes, collegesRes, campaignRes, auditRes, securityRes] = await Promise.allSettled([
             request({ url: "/admin/users", method: "GET" }),
+            request({ url: "/academic/colleges", method: "GET" }),
             request({ url: "/campaigns", method: "GET" }),
-            request({ url: "/academic/departments", method: "GET" }),
             request({ url: "/admin/audit-logs?limit=8", method: "GET" }),
             request({ url: "/admin/security-metrics", method: "GET" }),
         ]);
 
         if (usersRes.status === "fulfilled") setUsers(usersRes.value.data || []);
+        if (collegesRes.status === "fulfilled") setColleges(collegesRes.value.data || []);
         if (campaignRes.status === "fulfilled") setCampaigns(campaignRes.value.data || []);
-        if (departmentRes.status === "fulfilled") setDepartments(departmentRes.value.data || []);
         if (auditRes.status === "fulfilled") setAuditLogs(auditRes.value.data || []);
         if (securityRes.status === "fulfilled") setSecurityMetrics(securityRes.value.data || null);
     }, [request]);
@@ -58,8 +58,8 @@ export default function SuperAdminDashboard() {
             </div>
 
             <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5">
-                <Metric label="Managed Users" value={loading ? "-" : users.length} />
-                <Metric label="Departments" value={departments.length} />
+                <Metric label="Colleges" value={loading ? "-" : colleges.length} />
+                <Metric label="College Admins" value={loading ? "-" : users.length} />
                 <Metric label="Active Campaigns" value={activeCampaigns} />
                 <Metric label="Verified Submissions" value={submissions} />
             </section>
@@ -71,7 +71,7 @@ export default function SuperAdminDashboard() {
                             <h2 className="sf-section-title">Tenant Activity</h2>
                             <p className="text-sm text-[#45464d] mt-1">Campaign and response activity from connected institutions.</p>
                         </div>
-                        <Button size="sm" onClick={() => navigate("/superadmin/campaigns")}>Manage Campaigns</Button>
+                        <Button size="sm" onClick={() => navigate("/superadmin/colleges")}>Manage Colleges</Button>
                     </div>
 
                     {loading && campaigns.length === 0 ? (

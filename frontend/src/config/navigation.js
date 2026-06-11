@@ -8,19 +8,13 @@ const navigationConfig = [
         roles: [ROLES.SUPER_ADMIN],
     },
     {
-        label: "Campaigns",
+        label: "Colleges",
         icon: ">>",
-        path: "/superadmin/campaigns",
+        path: "/superadmin/colleges",
         roles: [ROLES.SUPER_ADMIN],
     },
     {
-        label: "Academic Structure",
-        icon: "##",
-        path: "/superadmin/academic",
-        roles: [ROLES.SUPER_ADMIN],
-    },
-    {
-        label: "Users",
+        label: "College Admins",
         icon: "@@",
         path: "/superadmin/users",
         roles: [ROLES.SUPER_ADMIN],
@@ -32,15 +26,21 @@ const navigationConfig = [
         roles: [ROLES.SUPER_ADMIN],
     },
     {
+        label: "Profile",
+        icon: "@@",
+        path: "/superadmin/profile",
+        roles: [ROLES.SUPER_ADMIN],
+    },
+    {
         label: "Overview",
         icon: "[]",
         path: "/admin",
         roles: [ROLES.ADMIN],
     },
     {
-        label: "Campaigns",
-        icon: ">>",
-        path: "/admin/campaigns",
+        label: "Forms",
+        icon: "[]",
+        path: "/admin/forms",
         roles: [ROLES.ADMIN],
     },
     {
@@ -62,9 +62,21 @@ const navigationConfig = [
         roles: [ROLES.ADMIN],
     },
     {
+        label: "Profile",
+        icon: "@@",
+        path: "/admin/profile",
+        roles: [ROLES.ADMIN],
+    },
+    {
         label: "Dashboard",
         icon: "[]",
         path: "/faculty",
+        roles: [ROLES.FACULTY],
+    },
+    {
+        label: "Profile",
+        icon: "@@",
+        path: "/faculty/profile",
         roles: [ROLES.FACULTY],
     },
     {
@@ -74,7 +86,7 @@ const navigationConfig = [
         roles: [ROLES.STUDENT],
     },
     {
-        label: "Campaigns",
+        label: "Feedback Forms",
         icon: ">>",
         path: "/student/campaigns",
         roles: [ROLES.STUDENT],

@@ -10,12 +10,28 @@ export default function Register() {
     const [password, setPassword] = useState("");
     const [collegeId, setCollegeId] = useState("");
     const [departmentId, setDepartmentId] = useState("");
-    const [metadata, setMetadata] = useState({ colleges: [], departments: [] });
+    const [semesterNumber, setSemesterNumber] = useState("");
+    const [sectionId, setSectionId] = useState("");
+    const [metadata, setMetadata] = useState({ colleges: [], departments: [], sections: [] });
     const [loading, setLoading] = useState(false);
     const [fetchingMetadata, setFetchingMetadata] = useState(true);
     const [error, setError] = useState("");
     const { toast } = useToast();
     const navigate = useNavigate();
+    const departmentOptions = (metadata.departments || [])
+        .filter((department) => !collegeId || department.collegeId === collegeId)
+        .map((department) => ({ label: `${department.code} - ${department.name}`, value: department.id }));
+    const semesterOptions = Array.from({ length: 8 }, (_, index) => {
+        const number = index + 1;
+        return { label: `Semester ${number}`, value: String(number) };
+    });
+    const sectionOptions = (metadata.sections || [])
+        .filter((section) => (
+            (!collegeId || section.department?.collegeId === collegeId) &&
+            (!departmentId || section.departmentId === departmentId) &&
+            (!semesterNumber || String(section.semester?.number) === String(semesterNumber))
+        ))
+        .map((section) => ({ label: `Section ${section.name}`, value: section.id }));
 
     useEffect(() => {
         const fetchMetadata = async () => {
@@ -35,14 +51,22 @@ export default function Register() {
     const handleSubmit = async (event) => {
         event.preventDefault();
         setError("");
-        if (!name || !email || !password || !collegeId || !departmentId) {
+        if (!name || !email || !password || !collegeId || !departmentId || !semesterNumber || !sectionId) {
             setError("Please fill in all fields");
             return;
         }
 
         setLoading(true);
         try {
-            const result = await registerUser({ name, email, password, collegeId, departmentId });
+            const result = await registerUser({
+                name,
+                email,
+                password,
+                collegeId,
+                departmentId,
+                semesterNumber: Number(semesterNumber),
+                sectionId,
+            });
             if (result.success) {
                 toast.success("Account created successfully. Please sign in.");
                 navigate("/", { replace: true });
@@ -74,17 +98,44 @@ export default function Register() {
                             label="College / Institution"
                             options={(metadata.colleges || []).map((college) => ({ label: college.name, value: college.id }))}
                             value={collegeId}
-                            onChange={(event) => setCollegeId(event.target.value)}
+                            onChange={(event) => {
+                                setCollegeId(event.target.value);
+                                setDepartmentId("");
+                                setSemesterNumber("");
+                                setSectionId("");
+                            }}
                             disabled={fetchingMetadata}
                             placeholder={fetchingMetadata ? "Loading..." : "Select College"}
                         />
                         <Select
                             label="Department"
-                            options={(metadata.departments || []).map((department) => ({ label: department.name, value: department.id }))}
+                            options={departmentOptions}
                             value={departmentId}
-                            onChange={(event) => setDepartmentId(event.target.value)}
-                            disabled={fetchingMetadata}
-                            placeholder={fetchingMetadata ? "Loading..." : "Select Department"}
+                            onChange={(event) => {
+                                setDepartmentId(event.target.value);
+                                setSectionId("");
+                            }}
+                            disabled={fetchingMetadata || !collegeId}
+                            placeholder={fetchingMetadata ? "Loading..." : collegeId ? "Select Department" : "Select College First"}
+                        />
+                        <Select
+                            label="Semester"
+                            options={semesterOptions}
+                            value={semesterNumber}
+                            onChange={(event) => {
+                                setSemesterNumber(event.target.value);
+                                setSectionId("");
+                            }}
+                            disabled={fetchingMetadata || !departmentId}
+                            placeholder={departmentId ? "Select Semester" : "Select Department First"}
+                        />
+                        <Select
+                            label="Section"
+                            options={sectionOptions}
+                            value={sectionId}
+                            onChange={(event) => setSectionId(event.target.value)}
+                            disabled={fetchingMetadata || !departmentId || !semesterNumber}
+                            placeholder={semesterNumber ? "Select Section" : "Select Semester First"}
                         />
 
                         {error && (

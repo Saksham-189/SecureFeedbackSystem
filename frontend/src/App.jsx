@@ -4,18 +4,20 @@ import Login from "./pages/auth/Login";
 import Register from "./pages/auth/Register";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import Campaigns from "./pages/admin/Campaigns";
+import FormBuilder from "./pages/admin/FormBuilder";
 import AcademicStructure from "./pages/admin/AcademicStructure";
 import UserManagement from "./pages/admin/UserManagement";
 import AuditLogs from "./pages/admin/AuditLogs";
 import FormAnalytics from "./pages/admin/FormAnalytics";
 import SuperAdminDashboard from "./pages/superadmin/SuperAdminDashboard";
+import CollegeManagement from "./pages/superadmin/CollegeManagement";
 import StudentDashboard from "./pages/student/StudentDashboard";
 import CampaignCenter from "./pages/student/CampaignCenter";
 import SubmitFeedback from "./pages/student/SubmitFeedback";
 import SubmissionHistory from "./pages/student/SubmissionHistory";
 import FacultyDashboard from "./pages/faculty/FacultyDashboard";
 import FacultyAnalytics from "./pages/faculty/FacultyAnalytics";
-import StudentProfile from "./pages/student/StudentProfile";
+import RoleProfile from "./pages/profile/RoleProfile";
 import PrivacyCenter from "./pages/student/PrivacyCenter";
 import ProtectedRoute from "./routes/ProtectedRoute";
 import DashboardLayout from "./layouts/DashboardLayout";
@@ -37,10 +39,12 @@ function App() {
                 >
                     <Route path="/admin" element={<AdminDashboard />} />
                     <Route path="/admin/campaigns" element={<Campaigns />} />
+                    <Route path="/admin/forms" element={<FormBuilder />} />
                     <Route path="/admin/academic" element={<AcademicStructure />} />
                     <Route path="/admin/users" element={<UserManagement />} />
                     <Route path="/admin/audit-logs" element={<AuditLogs />} />
                     <Route path="/admin/analytics/:formId" element={<FormAnalytics />} />
+                    <Route path="/admin/profile" element={<RoleProfile />} />
                 </Route>
 
                 <Route
@@ -51,11 +55,11 @@ function App() {
                     }
                 >
                     <Route path="/superadmin" element={<SuperAdminDashboard />} />
-                    <Route path="/superadmin/campaigns" element={<Campaigns />} />
-                    <Route path="/superadmin/academic" element={<AcademicStructure />} />
+                    <Route path="/superadmin/colleges" element={<CollegeManagement />} />
                     <Route path="/superadmin/users" element={<UserManagement />} />
                     <Route path="/superadmin/audit-logs" element={<AuditLogs />} />
                     <Route path="/superadmin/analytics/:formId" element={<FormAnalytics />} />
+                    <Route path="/superadmin/profile" element={<RoleProfile />} />
                 </Route>
 
                 <Route
@@ -67,6 +71,7 @@ function App() {
                 >
                     <Route path="/faculty" element={<FacultyDashboard />} />
                     <Route path="/faculty/analytics/:formId" element={<FacultyAnalytics />} />
+                    <Route path="/faculty/profile" element={<RoleProfile />} />
                 </Route>
 
                 <Route
@@ -80,7 +85,7 @@ function App() {
                     <Route path="/student/campaigns" element={<CampaignCenter />} />
                     <Route path="/student/forms/:formId/submit" element={<SubmitFeedback />} />
                     <Route path="/student/submissions" element={<SubmissionHistory />} />
-                    <Route path="/student/profile" element={<StudentProfile />} />
+                    <Route path="/student/profile" element={<RoleProfile />} />
                     <Route path="/student/privacy" element={<PrivacyCenter />} />
                 </Route>
             </Routes>

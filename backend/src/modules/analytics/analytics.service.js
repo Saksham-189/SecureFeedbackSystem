@@ -15,6 +15,30 @@ import {
 const PRIVACY_THRESHOLD = 5;
 const isSuperAdmin = (user) => user?.role === "SUPER_ADMIN" || user?.role?.name === "SUPER_ADMIN";
 const getRoleName = (user) => user?.role?.name || user?.role;
+const textQuestionTypes = new Set(["TEXT", "SHORT_ANSWER", "PARAGRAPH"]);
+const ratingQuestionTypes = new Set(["RATING", "LINEAR_SCALE", "RATING_SCALE", "RATING_10"]);
+const singleChoiceQuestionTypes = new Set(["MCQ", "MULTIPLE_CHOICE", "DROPDOWN", "YES_NO"]);
+const checkboxQuestionTypes = new Set(["CHECKBOX", "CHECKBOXES"]);
+
+const facultyCanViewForm = async (form, user) => {
+    if (form.campaign?.targetCourseAssignment?.facultyId === user.id) return true;
+
+    const assignments = await prisma.courseAssignment.findMany({
+        where: {
+            facultyId: user.id,
+            collegeId: user.collegeId
+        },
+        include: { course: true }
+    });
+
+    return assignments.some((assignment) => {
+        const campaign = form.campaign;
+        const departmentMatch = !campaign?.targetDepartmentId || assignment.course.departmentId === campaign.targetDepartmentId;
+        const semesterMatch = !campaign?.targetSemesterId || assignment.semesterId === campaign.targetSemesterId;
+        const sectionMatch = !campaign?.targetSectionId || assignment.sectionId === campaign.targetSectionId;
+        return departmentMatch && semesterMatch && sectionMatch;
+    });
+};
 
 /**
  * Fetch and aggregate privacy-preserving analytics for a specific form.
@@ -40,10 +64,7 @@ export const getFormAnalytics = async (formId, user) => {
         throw new Error("Unauthorized to view analytics for this form");
     }
 
-    if (
-        getRoleName(user) === "FACULTY" &&
-        form.campaign?.targetCourseAssignment?.facultyId !== user.id
-    ) {
+    if (getRoleName(user) === "FACULTY" && !(await facultyCanViewForm(form, user))) {
         throw new Error("Unauthorized to view analytics for this form");
     }
 
@@ -98,12 +119,12 @@ export const getFormAnalytics = async (formId, user) => {
             data: {}
         };
         
-        if (["MCQ", "DROPDOWN", "CHECKBOX"].includes(q.questionType)) {
+        if (singleChoiceQuestionTypes.has(q.questionType) || checkboxQuestionTypes.has(q.questionType)) {
             const opts = q.options || [];
             opts.forEach(o => analytics.questions[q.id].data[o] = 0);
-        } else if (q.questionType === "RATING") {
+        } else if (ratingQuestionTypes.has(q.questionType)) {
             analytics.questions[q.id].data = { average: 0, count: 0, sum: 0 };
-        } else if (q.questionType === "TEXT") {
+        } else if (textQuestionTypes.has(q.questionType)) {
             analytics.questions[q.id].data = []; // Will store decrypted text responses
         }
     });
@@ -113,11 +134,11 @@ export const getFormAnalytics = async (formId, user) => {
         const qStats = analytics.questions[res.questionId];
         if (!qStats) continue;
 
-        if (qStats.type === "RATING" && res.answerNumber !== null) {
+        if (ratingQuestionTypes.has(qStats.type) && res.answerNumber !== null) {
             qStats.data.sum += res.answerNumber;
             qStats.data.count += 1;
         } 
-        else if (["MCQ", "DROPDOWN"].includes(qStats.type) && res.answerText) {
+        else if (singleChoiceQuestionTypes.has(qStats.type) && res.answerText) {
             // Because answerText was encrypted, we must decrypt it first if MCQ was stored securely
             let val = res.answerText;
             try {
@@ -126,13 +147,13 @@ export const getFormAnalytics = async (formId, user) => {
             
             if (qStats.data[val] !== undefined) qStats.data[val] += 1;
         }
-        else if (qStats.type === "CHECKBOX" && res.answerArray) {
+        else if (checkboxQuestionTypes.has(qStats.type) && res.answerArray) {
             const arr = Array.isArray(res.answerArray) ? res.answerArray : [];
             arr.forEach(val => {
                 if (qStats.data[val] !== undefined) qStats.data[val] += 1;
             });
         }
-        else if (qStats.type === "TEXT" && res.answerText) {
+        else if (textQuestionTypes.has(qStats.type) && res.answerText) {
             try {
                 const plaintext = decryptField(res.answerText);
                 const storedThemes = Array.isArray(res.themeTags) ? res.themeTags : [];
@@ -155,9 +176,9 @@ export const getFormAnalytics = async (formId, user) => {
     let toxicityFlags = 0;
 
     Object.values(analytics.questions).forEach(qStats => {
-        if (qStats.type === "RATING" && qStats.data.count > 0) {
+        if (ratingQuestionTypes.has(qStats.type) && qStats.data.count > 0) {
             qStats.data.average = Number((qStats.data.sum / qStats.data.count).toFixed(2));
-        } else if (qStats.type === "TEXT") {
+        } else if (textQuestionTypes.has(qStats.type)) {
             // Filter out toxic comments from display, but count them
             const cleanData = [];
             qStats.data.forEach(item => {
@@ -200,7 +221,7 @@ const getAverageRatingForForms = async (formIds) => {
 
     const ratings = await prisma.feedbackResponse.aggregate({
         where: {
-            question: { questionType: "RATING" },
+            question: { questionType: { in: ["RATING", "LINEAR_SCALE", "RATING_SCALE", "RATING_10"] } },
             answerNumber: { not: null },
             submission: {
                 formId: { in: formIds },
@@ -330,7 +351,7 @@ const getTextIntelligenceItems = async (formIds) => {
 
     const responses = await prisma.feedbackResponse.findMany({
         where: {
-            question: { questionType: "TEXT" },
+            question: { questionType: { in: ["TEXT", "SHORT_ANSWER", "PARAGRAPH"] } },
             answerText: { not: null },
             submission: {
                 formId: { in: formIds },

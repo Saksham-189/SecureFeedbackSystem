@@ -40,7 +40,7 @@ export const getAuditLogs = async (req, res) => {
     try {
         // Simple pagination for now
         const limit = Number(req.query.limit) || 50;
-        const logs = await fetchAuditLogs(req.user.collegeId, limit);
+        const logs = await fetchAuditLogs(req.user, limit);
         res.status(200).json({ success: true, data: logs });
     } catch (error) {
         res.status(400).json({ success: false, message: error.message });
@@ -50,7 +50,7 @@ export const getAuditLogs = async (req, res) => {
 export const getSystemAnomalies = async (req, res) => {
     try {
         const limit = Number(req.query.limit) || 20;
-        const anomalies = await fetchAnomalies(req.user.collegeId, limit);
+        const anomalies = await fetchAnomalies(req.user, limit);
         res.status(200).json({ success: true, data: anomalies });
     } catch (error) {
         res.status(400).json({ success: false, message: error.message });
@@ -59,7 +59,7 @@ export const getSystemAnomalies = async (req, res) => {
 
 export const getSecurityMetrics = async (req, res) => {
     try {
-        const metrics = await fetchSecurityMetrics(req.user.collegeId);
+        const metrics = await fetchSecurityMetrics(req.user);
         res.status(200).json({ success: true, data: metrics });
     } catch (error) {
         res.status(400).json({ success: false, message: error.message });

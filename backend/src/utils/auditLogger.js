@@ -2,6 +2,7 @@ import prisma from "../prisma/prismaClient.js";
 
 const auditLogger = async ({
     userId = null,
+    collegeId = undefined,
     action,
     resourceType = null,
     resourceId = null,
@@ -12,8 +13,17 @@ const auditLogger = async ({
 }) => {
 
     try {
+        let scopedCollegeId = collegeId ?? null;
+        if (scopedCollegeId === undefined || scopedCollegeId === null) {
+            const user = userId
+                ? await prisma.user.findUnique({ where: { id: userId }, select: { collegeId: true } })
+                : null;
+            scopedCollegeId = user?.collegeId || null;
+        }
+
         await prisma.auditLog.create({
             data: {
+                collegeId: scopedCollegeId,
                 userId,
                 action,
                 resourceType,

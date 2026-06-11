@@ -25,7 +25,7 @@ export default function FacultyDashboard() {
 
     useEffect(() => {
         // eslint-disable-next-line react-hooks/set-state-in-effect
-        loadCampaigns().catch(() => toast.error("Failed to load faculty campaigns"));
+        loadCampaigns().catch(() => toast.error("Failed to load assigned forms"));
     }, [loadCampaigns, toast]);
 
     const forms = useMemo(
@@ -41,7 +41,7 @@ export default function FacultyDashboard() {
             <header>
                 <span className="sf-label">Faculty Intelligence</span>
                 <h1 className="sf-page-title mt-2">Performance Intelligence Hub</h1>
-                <p className="text-[#45464d] mt-1">Anonymous feedback insights for courses assigned to {user?.name || "you"}.</p>
+                <p className="text-[#45464d] mt-1">Anonymous feedback insights from forms assigned to {user?.name || "you"}.</p>
             </header>
 
             <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
@@ -125,12 +125,12 @@ export default function FacultyDashboard() {
                         {loading && forms.length === 0 ? (
                             <Skeleton preset="card" />
                         ) : forms.length === 0 ? (
-                            <EmptyState title="No assigned campaigns" description="Campaigns targeting your course assignments will appear here." />
+                            <EmptyState title="No assigned forms" description="Published feedback forms assigned to your courses will appear here." />
                         ) : (
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                 {forms.map((form) => (
                                     <div key={form.id} className="border border-[#c6c6cd] rounded p-4 bg-[#f7f9fb]">
-                                        <p className="sf-label">{form.campaign?.targetCourseAssignment?.course?.code || form.campaign?.type}</p>
+                                <p className="sf-label">{form.campaign?.targetCourseAssignment?.course?.code || "Feedback Form"}</p>
                                         <h3 className="font-semibold text-black mt-1">{form.title}</h3>
                                         <div className="flex items-center justify-between mt-4">
                                             <span className="text-sm text-[#45464d]">{form._count?.submissions || 0} responses</span>

@@ -4,6 +4,8 @@ import bcrypt from 'bcrypt';
 const prisma = new PrismaClient();
 
 const PASSWORD = 'Password@123';
+const PLATFORM_SUPER_ADMIN_EMAIL = 'superadmin@securefeedback.local';
+const LEGACY_RVCE_SUPER_ADMIN_EMAIL = 'superadmin@rvce.edu.in';
 
 async function upsertUser({ email, name, roleId, collegeId, departmentId, passwordHash }) {
     return prisma.user.upsert({
@@ -47,6 +49,20 @@ async function main() {
         create: { name: 'RV College of Engineering', domain: 'rvce.edu.in' }
     });
 
+    const additionalCollegeData = [
+        { name: 'Dayananda Sagar College of Engineering', domain: 'dsce.edu.in' },
+        { name: 'Bangalore College of Engineering', domain: 'bce.edu.in' }
+    ];
+
+    const additionalColleges = [];
+    for (const collegeData of additionalCollegeData) {
+        additionalColleges.push(await prisma.college.upsert({
+            where: { domain: collegeData.domain },
+            update: { name: collegeData.name },
+            create: collegeData
+        }));
+    }
+
     const deptData = [
         { name: 'Computer Science & Engineering', code: 'CSE' },
         { name: 'Electronics & Communication Engineering', code: 'ECE' },
@@ -59,6 +75,41 @@ async function main() {
             where: { collegeId_code: { collegeId: college.id, code: dept.code } },
             update: { name: dept.name },
             create: { ...dept, collegeId: college.id }
+        });
+    }
+
+    for (const tenantCollege of additionalColleges) {
+        const tenantDepartments = {};
+        for (const dept of deptData) {
+            tenantDepartments[dept.code] = await prisma.department.upsert({
+                where: { collegeId_code: { collegeId: tenantCollege.id, code: dept.code } },
+                update: { name: dept.name },
+                create: { ...dept, collegeId: tenantCollege.id }
+            });
+        }
+
+        for (const deptCode of Object.keys(tenantDepartments)) {
+            for (const programName of ['B.Tech', 'M.Tech']) {
+                await prisma.program.upsert({
+                    where: {
+                        departmentId_name: {
+                            departmentId: tenantDepartments[deptCode].id,
+                            name: programName
+                        }
+                    },
+                    update: {},
+                    create: {
+                        name: programName,
+                        departmentId: tenantDepartments[deptCode].id
+                    }
+                });
+            }
+        }
+
+        await prisma.academicYear.upsert({
+            where: { collegeId_name: { collegeId: tenantCollege.id, name: '2025-2026' } },
+            update: { isCurrent: true },
+            create: { name: '2025-2026', collegeId: tenantCollege.id, isCurrent: true }
         });
     }
 
@@ -155,12 +206,43 @@ async function main() {
         });
     }
 
+    const legacySuperAdmin = await prisma.user.findUnique({
+        where: { email: LEGACY_RVCE_SUPER_ADMIN_EMAIL }
+    });
+    const platformSuperAdmin = await prisma.user.findUnique({
+        where: { email: PLATFORM_SUPER_ADMIN_EMAIL }
+    });
+
+    if (legacySuperAdmin && !platformSuperAdmin) {
+        await prisma.user.update({
+            where: { email: LEGACY_RVCE_SUPER_ADMIN_EMAIL },
+            data: {
+                email: PLATFORM_SUPER_ADMIN_EMAIL,
+                name: 'Super Admin',
+                passwordHash,
+                roleId: roles.SUPER_ADMIN,
+                collegeId: null,
+                departmentId: null
+            }
+        });
+    } else if (legacySuperAdmin) {
+        await prisma.user.update({
+            where: { email: LEGACY_RVCE_SUPER_ADMIN_EMAIL },
+            data: {
+                email: 'legacy-superadmin@securefeedback.local',
+                name: 'Legacy Super Admin',
+                collegeId: null,
+                departmentId: null
+            }
+        });
+    }
+
     const superAdmin = await upsertUser({
-        email: 'superadmin@rvce.edu.in',
-        name: 'Platform Super Admin',
+        email: PLATFORM_SUPER_ADMIN_EMAIL,
+        name: 'Super Admin',
         passwordHash,
         roleId: roles.SUPER_ADMIN,
-        collegeId: college.id
+        collegeId: null
     });
 
     const admin = await upsertUser({
@@ -236,7 +318,7 @@ async function main() {
         courseAssignments[`${spec.courseCode}-${spec.sectionKey}`] = await prisma.courseAssignment.upsert({
             where: { courseId_facultyId_sectionId_semesterId: assignmentKey },
             update: {},
-            create: assignmentKey
+            create: { ...assignmentKey, collegeId: college.id }
         });
     }
 
@@ -262,7 +344,7 @@ async function main() {
         await prisma.enrollment.upsert({
             where: { studentId_sectionId_semesterId: enrollmentKey },
             update: {},
-            create: enrollmentKey
+            create: { ...enrollmentKey, collegeId: college.id }
         });
     }
 
